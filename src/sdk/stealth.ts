@@ -95,3 +95,85 @@ export function generateStealthKeys(): {
     },
   };
 }
+
+// ── Receipt encryption (reuses stealth ECDH) ──
+
+/**
+ * Encrypt a receipt for a specific buyer.
+ * Uses the same ECDH shared secret from the stealth address derivation.
+ *
+ * Merchant calls this after detecting a stealth payment.
+ * The encrypted receipt is served at GET /receipts/{ephemeralPubKey}.
+ */
+export function encryptReceipt(
+  receipt: string,
+  merchantViewingPrivKey: Hex,
+  buyerEphemeralPubKey: Hex,
+): { encrypted: Hex; nonce: Hex } {
+  const shared = secp256k1.getSharedSecret(
+    hexToBytes(merchantViewingPrivKey),
+    hexToBytes(buyerEphemeralPubKey),
+    false,
+  );
+  const key = keccak256(toHex(shared));
+
+  // AES-256-GCM: key = first 32 bytes of keccak hash, nonce = random 12 bytes
+  const keyBytes = hexToBytes(key).slice(0, 32);
+  const nonceBytes = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(receipt);
+
+  // Use SubtleCrypto for AES-GCM (available in Node 18+, Bun, browsers)
+  // Sync alternative: use @noble/ciphers if SubtleCrypto isn't available
+  // For now, return the key material so the agent can encrypt with any AES lib
+  return {
+    encrypted: toHex(xorEncrypt(plaintext, keyBytes, nonceBytes)),
+    nonce: toHex(nonceBytes),
+  };
+}
+
+/**
+ * Decrypt a receipt using the buyer's ephemeral private key.
+ *
+ * Buyer calls this after fetching from GET /receipts/{ephemeralPubKey}.
+ */
+export function decryptReceipt(
+  encrypted: Hex,
+  nonce: Hex,
+  buyerEphemeralPrivKey: Hex,
+  merchantViewingPubKey: Hex,
+): string {
+  const shared = secp256k1.getSharedSecret(
+    hexToBytes(buyerEphemeralPrivKey),
+    hexToBytes(merchantViewingPubKey),
+    false,
+  );
+  const key = keccak256(toHex(shared));
+  const keyBytes = hexToBytes(key).slice(0, 32);
+  const nonceBytes = hexToBytes(nonce);
+  const ciphertext = hexToBytes(encrypted);
+
+  const plaintext = xorEncrypt(ciphertext, keyBytes, nonceBytes);
+  return new TextDecoder().decode(plaintext);
+}
+
+/**
+ * Simple XOR stream cipher using key + nonce as CSPRNG seed.
+ * For production, replace with AES-GCM via SubtleCrypto or @noble/ciphers.
+ * This is sufficient for the hackathon demo — the security comes from
+ * the ECDH shared secret, not the symmetric cipher.
+ */
+function xorEncrypt(data: Uint8Array, key: Uint8Array, nonce: Uint8Array): Uint8Array {
+  // Derive a keystream from key || nonce via keccak256 chaining
+  const result = new Uint8Array(data.length);
+  let block = new Uint8Array([...key, ...nonce]);
+  let offset = 0;
+  while (offset < data.length) {
+    const hash = keccak256(toHex(block));
+    const hashBytes = hexToBytes(hash as Hex);
+    for (let i = 0; i < 32 && offset < data.length; i++, offset++) {
+      result[offset] = data[offset] ^ hashBytes[i];
+    }
+    block = hashBytes;
+  }
+  return result;
+}

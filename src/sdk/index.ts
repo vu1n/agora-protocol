@@ -15,6 +15,8 @@ export {
   deriveStealthAddress,
   checkStealthAddress,
   generateStealthKeys,
+  encryptReceipt,
+  decryptReceipt,
 } from "./stealth.js";
 export type {
   CallIntent,
