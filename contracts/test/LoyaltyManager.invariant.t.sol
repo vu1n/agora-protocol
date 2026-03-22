@@ -43,7 +43,7 @@ contract LoyaltyInvariantHandler is Test {
 
     function tryVerify(
         uint[2] calldata a, uint[2][2] calldata b, uint[2] calldata c,
-        uint[6] calldata pubSignals, uint256 agentIdx
+        uint[8] calldata pubSignals, uint256 agentIdx
     ) external {
         if (registeredAgents.length == 0) return;
         agentIdx = agentIdx % registeredAgents.length;

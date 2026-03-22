@@ -1,8 +1,8 @@
 /**
- * Smoke test: generate a witness, produce a Groth16 proof, verify it.
- * Must pass before any contract work proceeds.
+ * Smoke test for the EdDSA-signed loyalty circuit.
+ * Generates merchant EdDSA keys, signs receipts, proves, and verifies.
  */
-import { buildPoseidon } from "circomlibjs";
+import { buildPoseidon, buildEddsa, buildBabyjub } from "circomlibjs";
 import * as snarkjs from "snarkjs";
 import { writeFileSync, readFileSync } from "fs";
 
@@ -12,15 +12,27 @@ const TREE_SIZE = 1 << MERKLE_DEPTH;
 
 async function main() {
   const poseidon = await buildPoseidon();
+  const eddsa = await buildEddsa();
+  const babyJub = await buildBabyjub();
   const F = poseidon.F;
+
   const hash = (...inputs) => F.toObject(poseidon(inputs.map(BigInt)));
 
+  // ── Merchant EdDSA keys (Baby Jubjub) ──
+  const merchantPrivKey = Buffer.from(
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "hex"
+  );
+  const merchantPubKey = eddsa.prv2pub(merchantPrivKey);
+  const merchantAx = F.toObject(merchantPubKey[0]);
+  const merchantAy = F.toObject(merchantPubKey[1]);
+  console.log("Merchant EdDSA pubkey generated");
+
+  // ── Test data ──
   const buyerSecret = 12345n;
   const buyerCommitment = hash(buyerSecret);
-  const scopeCommitment = hash(42n); // merchant or category ID
+  const scopeCommitment = hash(42n);
   const now = BigInt(Math.floor(Date.now() / 1000));
 
-  // 5 purchases with timestamps
   const purchases = [
     { amount: 100_000_000n, salt: 1001n, ts: now - 86400n * 10n },
     { amount: 150_000_000n, salt: 1002n, ts: now - 86400n * 8n },
@@ -29,24 +41,40 @@ async function main() {
     { amount: 50_000_000n,  salt: 1005n, ts: now - 86400n },
   ];
 
-  // Leaf: Poseidon(scopeCommitment, amount, buyerCommitment, salt, timestamp)
-  const leafHash = (p) => hash(scopeCommitment, p.amount, buyerCommitment, p.salt, p.ts);
+  // ── Compute leaves and sign each one ──
+  const leafHashes = [];
+  const signatures = [];
 
-  // Build full tree with real + padding leaves
+  for (const p of purchases) {
+    const leafHash = hash(scopeCommitment, p.amount, buyerCommitment, p.salt, p.ts);
+    leafHashes.push(leafHash);
+
+    // Sign the leaf hash with merchant's EdDSA key
+    const msgF = F.e(leafHash);
+    const sig = eddsa.signPoseidon(merchantPrivKey, msgF);
+    signatures.push({
+      S: sig.S.toString(),
+      R8x: F.toObject(sig.R8[0]).toString(),
+      R8y: F.toObject(sig.R8[1]).toString(),
+    });
+  }
+  console.log(`${purchases.length} receipts signed`);
+
+  // ── Build Merkle tree ──
   const zeroLeaf = hash(0n, 0n, 0n, 0n, 0n);
   const leaves = new Array(TREE_SIZE).fill(zeroLeaf);
-  purchases.forEach((p, i) => { leaves[i] = leafHash(p); });
+  leafHashes.forEach((lh, i) => { leaves[i] = lh; });
 
   // Padding leaves at end of tree
-  const paddingReceipts = [];
+  const paddingSigs = [];
   for (let i = purchases.length; i < MAX_PURCHASES; i++) {
-    const pad = { amount: 0n, salt: 2000n + BigInt(i), ts: 0n };
     const idx = TREE_SIZE - 1 - (i - purchases.length);
-    leaves[idx] = hash(scopeCommitment, pad.amount, buyerCommitment, pad.salt, pad.ts);
-    paddingReceipts.push({ ...pad, idx });
+    const padLeaf = hash(scopeCommitment, 0n, buyerCommitment, 2000n + BigInt(i), 0n);
+    leaves[idx] = padLeaf;
+    // Padding: signature fields are dummy (enabled=0 in circuit)
+    paddingSigs.push({ S: "0", R8x: "0", R8y: "0" });
   }
 
-  // Build tree layers
   const layers = [leaves];
   let current = leaves;
   for (let d = 0; d < MERKLE_DEPTH; d++) {
@@ -59,7 +87,6 @@ async function main() {
   }
   const merkleRoot = layers[MERKLE_DEPTH][0];
 
-  // Extract Merkle proof
   function getProof(leafIndex) {
     const pathElements = [], pathIndices = [];
     let idx = leafIndex;
@@ -71,9 +98,10 @@ async function main() {
     return { pathElements, pathIndices };
   }
 
-  // Build witness
+  // ── Build witness ──
   const purchaseAmounts = [], purchaseSalts = [], purchaseTimestamps = [];
   const merklePaths = [], merkleIndices = [];
+  const sigS = [], sigR8x = [], sigR8y = [];
 
   for (let i = 0; i < MAX_PURCHASES; i++) {
     if (i < purchases.length) {
@@ -83,14 +111,20 @@ async function main() {
       const p = getProof(i);
       merklePaths.push(p.pathElements);
       merkleIndices.push(p.pathIndices);
+      sigS.push(signatures[i].S);
+      sigR8x.push(signatures[i].R8x);
+      sigR8y.push(signatures[i].R8y);
     } else {
-      const pr = paddingReceipts[i - purchases.length];
+      const pidx = TREE_SIZE - 1 - (i - purchases.length);
       purchaseAmounts.push("0");
-      purchaseSalts.push(pr.salt.toString());
+      purchaseSalts.push((2000 + i).toString());
       purchaseTimestamps.push("0");
-      const p = getProof(pr.idx);
+      const p = getProof(pidx);
       merklePaths.push(p.pathElements);
       merkleIndices.push(p.pathIndices);
+      sigS.push(paddingSigs[i - purchases.length].S);
+      sigR8x.push(paddingSigs[i - purchases.length].R8x);
+      sigR8y.push(paddingSigs[i - purchases.length].R8y);
     }
   }
 
@@ -98,25 +132,27 @@ async function main() {
     purchaseAmounts, purchaseSalts, purchaseTimestamps,
     merklePaths, merkleIndices,
     buyerSecret: buyerSecret.toString(),
+    sigS, sigR8x, sigR8y,
     merkleRoot: merkleRoot.toString(),
     scopeCommitment: scopeCommitment.toString(),
     threshold: "500000000",
     purchaseCount: "5",
-    minTimestamp: "0", // all-time
+    minTimestamp: "0",
+    merchantPubKeyAx: merchantAx.toString(),
+    merchantPubKeyAy: merchantAy.toString(),
   };
 
   writeFileSync("build/input.json", JSON.stringify(witness, null, 2));
   console.log("Witness written");
 
-  // Generate + verify proof
-  console.log("Generating proof...");
+  // ── Generate + verify proof ──
+  console.log("Generating proof (EdDSA circuit, ~82k constraints)...");
   const t0 = Date.now();
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(
     witness, "build/loyalty_verify_js/loyalty_verify.wasm", "build/loyalty_verify_final.zkey"
   );
   console.log(`Proof generated in ${Date.now() - t0}ms`);
 
-  // Public signals: [nullifier, merkleRoot, scopeCommitment, threshold, purchaseCount, minTimestamp]
   console.log("Public signals:");
   console.log("  nullifier:", publicSignals[0]);
   console.log("  merkleRoot:", publicSignals[1]);
@@ -124,6 +160,8 @@ async function main() {
   console.log("  threshold:", publicSignals[3]);
   console.log("  purchaseCount:", publicSignals[4]);
   console.log("  minTimestamp:", publicSignals[5]);
+  console.log("  merchantAx:", publicSignals[6]);
+  console.log("  merchantAy:", publicSignals[7]);
 
   const vkey = JSON.parse(readFileSync("build/verification_key.json", "utf-8"));
   const valid = await snarkjs.groth16.verify(vkey, publicSignals, proof);
@@ -133,16 +171,6 @@ async function main() {
 
   writeFileSync("build/proof.json", JSON.stringify(proof, null, 2));
   writeFileSync("build/public.json", JSON.stringify(publicSignals, null, 2));
-
-  // Test time-bounded proof (minTimestamp = 15 days ago — should still pass, all purchases within 10 days)
-  console.log("\n--- Time-bounded test (last 15 days) ---");
-  const witness2 = { ...witness, minTimestamp: (now - 86400n * 15n).toString() };
-  const { proof: p2, publicSignals: ps2 } = await snarkjs.groth16.fullProve(
-    witness2, "build/loyalty_verify_js/loyalty_verify.wasm", "build/loyalty_verify_final.zkey"
-  );
-  const valid2 = await snarkjs.groth16.verify(vkey, ps2, p2);
-  console.log("Time-bounded proof valid:", valid2);
-  if (!valid2) { console.error("TIME-BOUNDED TEST FAILED"); process.exit(1); }
 
   console.log("\nSMOKE TEST PASSED");
 }

@@ -8,7 +8,7 @@ interface IGroth16Verifier {
         uint[2] calldata _pA,
         uint[2][2] calldata _pB,
         uint[2] calldata _pC,
-        uint[6] calldata _pubSignals
+        uint[8] calldata _pubSignals
     ) external view returns (bool);
 }
 
@@ -24,6 +24,8 @@ interface IGroth16Verifier {
 ///   [3] threshold           (minimum spend proven)
 ///   [4] purchaseCount
 ///   [5] minTimestamp        (0 = all-time)
+///   [6] merchantPubKeyAx   (EdDSA public key x)
+///   [7] merchantPubKeyAy   (EdDSA public key y)
 contract LoyaltyManager {
     IGroth16Verifier public immutable verifier;
     MerchantRegistry public immutable registry;
@@ -56,7 +58,7 @@ contract LoyaltyManager {
         uint[2] calldata a,
         uint[2][2] calldata b,
         uint[2] calldata c,
-        uint[6] calldata pubSignals,
+        uint[8] calldata pubSignals,
         bytes32 scopeId
     ) external returns (bool) {
         uint256 nullifier = pubSignals[0];

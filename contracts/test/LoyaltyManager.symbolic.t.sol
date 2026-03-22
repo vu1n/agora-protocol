@@ -28,8 +28,8 @@ contract LoyaltyManagerSymbolic is Test {
     /// @notice A nullifier can never be used twice.
     /// Halmos explores all possible proof inputs symbolically.
     function check_nullifierNeverReusable(
-        uint[2] calldata a1, uint[2][2] calldata b1, uint[2] calldata c1, uint[6] calldata pub1,
-        uint[2] calldata a2, uint[2][2] calldata b2, uint[2] calldata c2, uint[6] calldata pub2
+        uint[2] calldata a1, uint[2][2] calldata b1, uint[2] calldata c1, uint[8] calldata pub1,
+        uint[2] calldata a2, uint[2][2] calldata b2, uint[2] calldata c2, uint[8] calldata pub2
     ) public {
         // Set root to match first proof's claimed root
         vm.prank(merchant);
@@ -56,7 +56,7 @@ contract LoyaltyManagerSymbolic is Test {
     /// @notice Unregistered scope always reverts.
     function check_unregisteredScopeAlwaysReverts(
         uint[2] calldata a, uint[2][2] calldata b, uint[2] calldata c,
-        uint[6] calldata pub, bytes32 scopeId
+        uint[8] calldata pub, bytes32 scopeId
     ) public {
         // scopeId that was never registered
         vm.assume(scopeId != agentId);
@@ -70,7 +70,7 @@ contract LoyaltyManagerSymbolic is Test {
     /// @notice Root mismatch always reverts.
     function check_rootMismatchAlwaysReverts(
         uint[2] calldata a, uint[2][2] calldata b, uint[2] calldata c,
-        uint[6] calldata pub, bytes32 fakeRoot
+        uint[8] calldata pub, bytes32 fakeRoot
     ) public {
         vm.prank(merchant);
         registry.updatePurchaseRoot(agentId, fakeRoot);
@@ -87,7 +87,7 @@ contract LoyaltyManagerSymbolic is Test {
     /// @notice Deactivated merchant always reverts (root is cleared).
     function check_deactivatedMerchantReverts(
         uint[2] calldata a, uint[2][2] calldata b, uint[2] calldata c,
-        uint[6] calldata pub
+        uint[8] calldata pub
     ) public {
         vm.prank(merchant);
         registry.updatePurchaseRoot(agentId, bytes32(pub[1]));
@@ -103,7 +103,7 @@ contract LoyaltyManagerSymbolic is Test {
     /// @notice Verification count increments exactly once per successful verification.
     function check_verificationCountIncrements(
         uint[2] calldata a, uint[2][2] calldata b, uint[2] calldata c,
-        uint[6] calldata pub
+        uint[8] calldata pub
     ) public {
         vm.prank(merchant);
         registry.updatePurchaseRoot(agentId, bytes32(pub[1]));
