@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { ProofCache } from "../proof-cache.js";
 import type { AgoraProver } from "../prover.js";
-import type { SpendReceipt, LoyaltyProofResult, Groth16Proof } from "../types.js";
+import type { SpendReceipt, LoyaltyProofResult, Groth16Proof, MerchantEdDSAKey } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -40,6 +40,7 @@ function makeReceipt(overrides?: Partial<SpendReceipt>): SpendReceipt {
     buyerCommitment: 42n,
     salt: 99n,
     timestamp: 1700000000n,
+    sig: { S: "123", R8x: "456", R8y: "789" },
     ...overrides,
   };
 }
@@ -48,6 +49,7 @@ const SCOPE_ID = "merchant-a";
 const SCOPE_COMMITMENT = 1000n;
 const THRESHOLD = 500_000_000n;
 const BUYER_SECRET = 12345n;
+const MERCHANT_KEY: MerchantEdDSAKey = { Ax: "111", Ay: "222" };
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -64,7 +66,7 @@ describe("ProofCache", () => {
   test("cache miss returns a fresh proof from the prover", async () => {
     cache.addReceipts(SCOPE_ID, [makeReceipt()]);
 
-    const proof = await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD);
+    const proof = await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD, MERCHANT_KEY);
 
     expect(proof).toBeDefined();
     expect(proof.proof.pi_a).toBeDefined();
@@ -75,8 +77,8 @@ describe("ProofCache", () => {
   test("cache hit returns the same proof object without re-proving", async () => {
     cache.addReceipts(SCOPE_ID, [makeReceipt()]);
 
-    const first = await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD);
-    const second = await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD);
+    const first = await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD, MERCHANT_KEY);
+    const second = await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD, MERCHANT_KEY);
 
     // Same object reference — served from cache
     expect(second).toBe(first);
@@ -87,13 +89,13 @@ describe("ProofCache", () => {
   test("addReceipts invalidates cached proofs for that scope", async () => {
     cache.addReceipts(SCOPE_ID, [makeReceipt()]);
 
-    const first = await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD);
+    const first = await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD, MERCHANT_KEY);
     expect(proveCallCount).toBe(1);
 
     // Adding new receipts should invalidate the cache
     cache.addReceipts(SCOPE_ID, [makeReceipt({ salt: 200n })]);
 
-    const second = await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD);
+    const second = await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD, MERCHANT_KEY);
     // New proof was generated
     expect(proveCallCount).toBe(2);
     // Different proof object
@@ -103,7 +105,7 @@ describe("ProofCache", () => {
   test("hasCachedProof returns false after invalidation", async () => {
     cache.addReceipts(SCOPE_ID, [makeReceipt()]);
 
-    await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD);
+    await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD, MERCHANT_KEY);
     expect(cache.hasCachedProof(SCOPE_ID, THRESHOLD)).toBe(true);
 
     // Invalidate by adding new receipts
@@ -117,25 +119,25 @@ describe("ProofCache", () => {
     cache.addReceipts(SCOPE_ID, [makeReceipt()]);
     expect(cache.stats().scopes).toBe(1);
 
-    await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD);
+    await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD, MERCHANT_KEY);
     expect(cache.stats()).toEqual({ cached: 1, pending: 0, scopes: 1 });
 
     // Add a second scope
     const scope2 = "merchant-b";
     cache.addReceipts(scope2, [makeReceipt({ scopeCommitment: 2000n })]);
-    await cache.getProof(scope2, 2000n, THRESHOLD);
+    await cache.getProof(scope2, 2000n, THRESHOLD, MERCHANT_KEY);
     expect(cache.stats()).toEqual({ cached: 2, pending: 0, scopes: 2 });
   });
 
   test("throws when no receipts exist for a scope", async () => {
     await expect(
-      cache.getProof("nonexistent", SCOPE_COMMITMENT, THRESHOLD),
+      cache.getProof("nonexistent", SCOPE_COMMITMENT, THRESHOLD, MERCHANT_KEY),
     ).rejects.toThrow("No receipts for scope nonexistent");
   });
 
   test("clear() removes all cached proofs", async () => {
     cache.addReceipts(SCOPE_ID, [makeReceipt()]);
-    await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD);
+    await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD, MERCHANT_KEY);
 
     expect(cache.stats().cached).toBe(1);
     cache.clear();
@@ -148,8 +150,8 @@ describe("ProofCache", () => {
     cache.addReceipts(SCOPE_ID, [makeReceipt()]);
     cache.addReceipts(scope2, [makeReceipt({ scopeCommitment: 2000n })]);
 
-    await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD);
-    await cache.getProof(scope2, 2000n, THRESHOLD);
+    await cache.getProof(SCOPE_ID, SCOPE_COMMITMENT, THRESHOLD, MERCHANT_KEY);
+    await cache.getProof(scope2, 2000n, THRESHOLD, MERCHANT_KEY);
     expect(cache.stats().cached).toBe(2);
 
     // Invalidate only SCOPE_ID

@@ -1,5 +1,5 @@
 import { AgoraProver } from "./prover.js";
-import type { SpendReceipt, LoyaltyProofResult } from "./types.js";
+import type { SpendReceipt, LoyaltyProofResult, MerchantEdDSAKey } from "./types.js";
 
 /**
  * ProofCache pre-generates and caches ZK spend proofs so they're
@@ -79,6 +79,7 @@ export class ProofCache {
     scopeId: string,
     scopeCommitment: bigint,
     threshold: bigint,
+    merchantKey: MerchantEdDSAKey,
     minTimestamp: bigint = 0n,
   ): Promise<LoyaltyProofResult> {
     const key: CacheKey = { scopeId, threshold, minTimestamp };
@@ -113,6 +114,7 @@ export class ProofCache {
       scopeCommitment,
       threshold,
       minTimestamp,
+      merchantKey,
     }).then(proof => {
       this.cache.set(keyStr, {
         proof,
@@ -139,11 +141,11 @@ export class ProofCache {
     scopeId: string,
     scopeCommitment: bigint,
     thresholds: bigint[],
+    merchantKey: MerchantEdDSAKey,
     minTimestamp: bigint = 0n,
   ): void {
     for (const threshold of thresholds) {
-      // Fire and forget — errors are swallowed (proof gen failure is non-fatal for pre-warming)
-      this.getProof(scopeId, scopeCommitment, threshold, minTimestamp).catch(() => {});
+      this.getProof(scopeId, scopeCommitment, threshold, merchantKey, minTimestamp).catch(() => {});
     }
   }
 
