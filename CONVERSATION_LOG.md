@@ -94,10 +94,38 @@ The Railgun integration is real -- both functions are wired in `executor.ts`. Th
 
 **The journey matters:** We didn't skip the hard part. We built the relay, deployed it to TDX, got it running, and then recognized it was architecturally wrong. The pivot to SDK-with-two-modes is a stronger design precisely because we understood why the relay failed.
 
+## 11. EdDSA Receipt Signing: Closing the Forgery Gap
+
+**Problem:** Receipts were unsigned data blobs. A buyer who knew the Merkle tree structure could forge receipts and inflate their loyalty spend. The judge flagged this as the #1 security issue.
+
+**Decision:** Add EdDSA Poseidon signature verification to the circuit. Each receipt leaf hash is signed by the merchant's Baby Jubjub key. The circuit verifies the signature (with `enabled=0` for padding slots). The merchant's public key is a public input, cross-checked on-chain against `MerchantRegistry`. Circuit grew from 23k to 82k constraints (8 EdDSA verifiers × ~7.5k each). Proof generation: ~2.2s → ~4-5s. The proof cache makes this invisible at checkout.
+
+## 12. Leaf Uniqueness: Preventing Double-Counting
+
+**Problem:** The same receipt could be included in multiple witness slots to inflate proven spend. A buyer with one $100 receipt could fill 5 slots to "prove" $500.
+
+**Decision:** Pairwise `IsEqual` check on leaf indices for all active (non-padding) slot pairs. 28 comparisons for 8 slots. If both slots are active and have the same index, the circuit rejects. Padding slots (amount=0) are exempt so they can share indices.
+
+## 13. On-Chain Proof Verification on Arbitrum Mainnet
+
+**Problem:** The judge repeatedly flagged "zero on-chain usage" as a credibility gap. Deployed contracts with no transactions are dead code.
+
+**Decision:** Registered a merchant with EdDSA public key on Arbitrum mainnet, published a Merkle root, and verified a real EdDSA-signed Groth16 proof. `verificationCount: 1`. Proof verification tx: `0x7c525dc1ba7e5cc511dd4d2be6ff6403792fbe095f81043af394a9d9ad920840` (326k gas).
+
+## 14. Encrypted Receipt Delivery
+
+**Problem:** How does the buyer get their receipt from the merchant? The receipt is needed for loyalty proofs but not at payment time.
+
+**Decision:** Merchant serves encrypted receipts at `GET /receipts/{ephemeralPubKey}`. Encrypted with XChaCha20-Poly1305 (AEAD via `@noble/ciphers`). Key derived via ECDH with domain separation: `keccak256(shared || "agora-receipt")` — different from the stealth address key to prevent reuse. Tampered ciphertext throws. Wrong key throws. The buyer pulls when they want to prove loyalty, not at payment time. SDK exports `encryptReceipt` and `decryptReceipt` as helpers — the code IS the documentation for agents.
+
 ## Technical Highlights
 
-- **Circuit soundness fixes:** Three bugs caught during plan review -- unbound Merkle root, replayable nullifier (buyerSecret not in leaf hash), non-quadratic constraint in MerkleTreeChecker. All fixed before compilation.
-- **Conditional time checks:** Padding slots (amount=0) are exempt from the `minTimestamp` constraint via `IsZero(amount) -> Mux1` -- allows zero-timestamp padding leaves when proving time-bounded spend.
-- **B-point coordinate swap:** snarkjs stores G2 points as `[real, imag]` but the EVM BN128 precompile expects `[imag, real]`. Caught by Foundry test failure, fixed in `formatForSolidity`.
-- **Zero-hash tree optimization:** Precomputed zero subtree hashes per level. Skips ~90% of Poseidon calls during tree construction. Tree build: ~300ms -> ~25ms.
-- **63 verification assertions:** 21 TypeScript, 9 Foundry unit, 3 invariant fuzz (128k calls), 4 Halmos symbolic, 8 circuit negative, 20 E2E (stealth + on-chain + scanning). Down from 66 -- the 3 relay-specific E2E tests were removed with the relay.
+- **Circuit soundness fixes:** Three bugs caught during plan review — unbound Merkle root, replayable nullifier (buyerSecret not in leaf hash), non-quadratic constraint in MerkleTreeChecker. All fixed before compilation.
+- **EdDSA upgrade:** Added EdDSAPoseidonVerifier per receipt slot with enabled flag for padding exemption. Circuit: 82,510 constraints. Merchant pubkey cross-checked on-chain.
+- **Leaf uniqueness:** Pairwise IsEqual on leaf indices for active slots. 28 checks for n=8.
+- **Conditional time checks:** Padding slots exempt from `minTimestamp` via `IsZero(amount) → Mux1`.
+- **B-point coordinate swap:** snarkjs `[real, imag]` → EVM `[imag, real]`. Caught by Foundry test failure.
+- **Zero-hash tree optimization:** Precomputed zero subtree hashes per level. Skips ~90% of Poseidon calls.
+- **Receipt encryption:** XChaCha20-Poly1305 AEAD with domain-separated ECDH key. Reuses stealth address key exchange.
+- **Proof cache:** Pre-generates proofs in background. 0ms at checkout. Invalidates on new receipts. Deduplicates in-flight generation.
+- **Verification depth:** 33 TypeScript tests, 9 Foundry unit (real EdDSA proofs), 3 invariant fuzz (128k calls), 4 Halmos symbolic, 10 circuit negative (including EdDSA forgery), 20 E2E assertions, 3 demo proofs, 1 Arbitrum mainnet verification.
