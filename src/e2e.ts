@@ -28,8 +28,10 @@ import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { buildEddsa, buildBabyjub } from "circomlibjs";
 import { AgoraProver } from "./prover.js";
 import { ProofCache } from "./proof-cache.js";
+import type { MerchantEdDSAKey, SpendReceipt } from "./types.js";
 import {
   generateStealthKeys,
   checkStealthAddress,
@@ -99,6 +101,17 @@ async function main() {
   const managerAddr = await deploy(managerArtifact.bytecode.object as Hex, managerArtifact.abi, [verifierAddr, registryAddr]);
   console.log(`  Contracts deployed\n`);
 
+  // ── Init EdDSA ──
+  const eddsa = await buildEddsa();
+  const babyJub = await buildBabyjub();
+  const eddsaF = babyJub.F;
+  const merchantPrivKey = Buffer.from("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "hex");
+  const merchantPubKey = eddsa.prv2pub(merchantPrivKey);
+  const merchantEdDSA: MerchantEdDSAKey = {
+    Ax: eddsaF.toObject(merchantPubKey[0]).toString(),
+    Ay: eddsaF.toObject(merchantPubKey[1]).toString(),
+  };
+
   // ── 1. Merchant setup ──
   console.log("1. Merchant registers + publishes deal");
   const MERCHANT_AGENT_ID = pad("0x01", { size: 32 });
@@ -107,7 +120,7 @@ async function main() {
   let tx = await merchantClient.writeContract({
     address: registryAddr, abi: registryAbi,
     functionName: "registerMerchant",
-    args: [MERCHANT_AGENT_ID, "E2E Coffee Shop"],
+    args: [MERCHANT_AGENT_ID, "E2E Coffee Shop", BigInt(merchantEdDSA.Ax), BigInt(merchantEdDSA.Ay)],
   });
   await publicClient.waitForTransactionReceipt({ hash: tx });
 
@@ -187,7 +200,7 @@ async function main() {
   assert(detected.stealthAddress === stealth.stealthAddress, "Stealth addresses match");
 
   // ── 5. Merchant issues receipt + updates root ──
-  console.log("\n5. Merchant issues receipt, updates Merkle root");
+  console.log("\n5. Merchant issues EdDSA-signed receipts, updates Merkle root");
   const prover = new AgoraProver();
   await prover.init();
 
@@ -197,13 +210,22 @@ async function main() {
   const scopeCommitment = prover.hash(SELLER_ID);
   const now = BigInt(Math.floor(Date.now() / 1000));
 
-  // Simulate 4 prior purchases + this new one
+  // Helper: create and sign a receipt
+  function signReceipt(r: SpendReceipt): SpendReceipt {
+    const leafHash = prover.receiptLeaf(r);
+    const sig = eddsa.signPoseidon(merchantPrivKey, eddsaF.e(leafHash));
+    return { ...r, sig: { S: sig.S.toString(), R8x: eddsaF.toObject(sig.R8[0]).toString(), R8y: eddsaF.toObject(sig.R8[1]).toString() } };
+  }
+  function makeR(amount: bigint, salt: bigint, ts: bigint): SpendReceipt {
+    return signReceipt(prover.createReceipt(scopeCommitment, amount, buyerCommitment, salt, ts, { S: "0", R8x: "0", R8y: "0" }));
+  }
+
   const receipts = [
-    prover.createReceipt(scopeCommitment, 8_000_000n, buyerCommitment, 2001n, now - 86400n * 10n),
-    prover.createReceipt(scopeCommitment, 5_000_000n, buyerCommitment, 2002n, now - 86400n * 7n),
-    prover.createReceipt(scopeCommitment, 4_000_000n, buyerCommitment, 2003n, now - 86400n * 3n),
-    prover.createReceipt(scopeCommitment, 6_000_000n, buyerCommitment, 2004n, now - 86400n),
-    prover.createReceipt(scopeCommitment, BigInt(deal.price), buyerCommitment, 2005n, now), // this purchase
+    makeR(8_000_000n, 2001n, now - 86400n * 10n),
+    makeR(5_000_000n, 2002n, now - 86400n * 7n),
+    makeR(4_000_000n, 2003n, now - 86400n * 3n),
+    makeR(6_000_000n, 2004n, now - 86400n),
+    makeR(BigInt(deal.price), 2005n, now),
   ];
 
   const totalSpend = receipts.reduce((s, r) => s + r.amount, 0n);
@@ -216,7 +238,7 @@ async function main() {
 
   // First call: cache miss, generates proof
   const t0 = Date.now();
-  const proof = await cache.getProof("coffee-shop", scopeCommitment, BigInt(deal.minLoyaltySpend));
+  const proof = await cache.getProof("coffee-shop", scopeCommitment, BigInt(deal.minLoyaltySpend), merchantEdDSA);
   const coldTime = Date.now() - t0;
 
   assert(proof.nullifier > 0n, `Proof generated (${coldTime}ms)`);
@@ -224,7 +246,7 @@ async function main() {
 
   // Second call: cache hit
   const t1 = Date.now();
-  const cachedProof = await cache.getProof("coffee-shop", scopeCommitment, BigInt(deal.minLoyaltySpend));
+  const cachedProof = await cache.getProof("coffee-shop", scopeCommitment, BigInt(deal.minLoyaltySpend), merchantEdDSA);
   const hotTime = Date.now() - t1;
 
   assert(cachedProof === proof, `Cache hit (${hotTime}ms)`);

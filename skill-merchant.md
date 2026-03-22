@@ -27,7 +27,7 @@ Call `registerMerchant` on the MerchantRegistry contract:
 ```bash
 # Using cast (foundry)
 cast send 0xc908B8883B3A14C8c4972f506a041318EDCe1DF2 \
-  "registerMerchant(bytes32,string)" \
+  "registerMerchant(bytes32,string,uint256,uint256)" \
   0x<your-agent-id> \
   "Your Shop Name" \
   --rpc-url https://arb1.arbitrum.io/rpc \
