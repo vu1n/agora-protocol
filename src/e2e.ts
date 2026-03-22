@@ -51,11 +51,11 @@ const merchantClient = createWalletClient({ account: MERCHANT_ACCOUNT, chain: an
 const buyerClient = createWalletClient({ account: BUYER_ACCOUNT, chain: anvil, transport: http(rpcUrl) });
 
 const registryAbi = parseAbi([
-  "function registerMerchant(bytes32 agentId, string name) external",
+  "function registerMerchant(bytes32 agentId, string name, uint256 eddsaAx, uint256 eddsaAy) external",
   "function updatePurchaseRoot(bytes32 agentId, bytes32 newRoot) external",
 ]);
 const managerAbi = parseAbi([
-  "function verifySpendProof(uint256[2] a, uint256[2][2] b, uint256[2] c, uint256[6] pubSignals, bytes32 scopeId) external returns (bool)",
+  "function verifySpendProof(uint256[2] a, uint256[2][2] b, uint256[2] c, uint256[8] pubSignals, bytes32 scopeId) external returns (bool)",
   "function verificationCount() external view returns (uint256)",
 ]);
 

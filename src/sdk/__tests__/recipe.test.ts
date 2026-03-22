@@ -33,7 +33,7 @@ function makeFakeLoyaltyProof(): LoyaltyProofResult {
       ],
       pi_c: ["7", "8"],
     },
-    publicSignals: ["100", "200", "300", "400", "500", "600"],
+    publicSignals: ["100", "200", "300", "400", "500", "600", "700", "800"],
     nullifier: 999n,
   };
 }
@@ -50,7 +50,7 @@ function makeMockProver(): AgoraProver {
           [BigInt(proof.pi_b[1][1]), BigInt(proof.pi_b[1][0])],
         ] as const,
         c: [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])] as const,
-        pubSignals: publicSignals.map(BigInt) as [bigint, bigint, bigint, bigint, bigint, bigint],
+        pubSignals: publicSignals.map(BigInt) as [bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint],
       };
     },
   } as unknown as AgoraProver;

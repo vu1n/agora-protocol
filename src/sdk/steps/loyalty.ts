@@ -18,7 +18,7 @@ const MANAGER_ABI = [
       { name: "a", type: "uint256[2]" },
       { name: "b", type: "uint256[2][2]" },
       { name: "c", type: "uint256[2]" },
-      { name: "pubSignals", type: "uint256[6]" },
+      { name: "pubSignals", type: "uint256[8]" },
       { name: "scopeId", type: "bytes32" },
     ],
     outputs: [{ name: "", type: "bool" }],

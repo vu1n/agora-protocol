@@ -53,7 +53,7 @@ contract LoyaltyManager {
         registry = MerchantRegistry(_registry);
     }
 
-    /// @param pubSignals [nullifier, merkleRoot, scopeCommitment, threshold, purchaseCount, minTimestamp]
+    /// @param pubSignals [nullifier, merkleRoot, scopeCommitment, threshold, purchaseCount, minTimestamp, merchantPubKeyAx, merchantPubKeyAy]
     /// @param scopeId Agent ID (merchant) or category ID — used to look up root from registry
     function verifySpendProof(
         uint[2] calldata a,

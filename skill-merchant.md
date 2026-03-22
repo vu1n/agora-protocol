@@ -182,7 +182,7 @@ When a buyer includes a loyalty proof in their payment, the on-chain `LoyaltyVer
 # Read verification result from LoyaltyManager
 cast call 0x7E68F87f59D141FBc5021E2F528d683739bb800e \
   "verifySpendProof(uint256[2],uint256[2][2],uint256[2],uint256[8],bytes32)" \
-  "[a0,a1]" "[[b00,b01],[b10,b11]]" "[c0,c1]" "[s0,s1,s2,s3,s4,s5]" 0x<scope-id> \
+  "[a0,a1]" "[[b00,b01],[b10,b11]]" "[c0,c1]" "[s0,s1,s2,s3,s4,s5,s6,s7]" 0x<scope-id> \
   --rpc-url https://arb1.arbitrum.io/rpc
 ```
 

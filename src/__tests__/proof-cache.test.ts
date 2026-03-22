@@ -19,7 +19,7 @@ function makeFakeProof(id: number): LoyaltyProofResult {
       ],
       pi_c: ["7", "8"],
     } satisfies Groth16Proof,
-    publicSignals: ["100", "200", "300", "400", "500", "600"],
+    publicSignals: ["100", "200", "300", "400", "500", "600", "700", "800"],
     nullifier: BigInt(id),
   };
 }
@@ -70,7 +70,7 @@ describe("ProofCache", () => {
 
     expect(proof).toBeDefined();
     expect(proof.proof.pi_a).toBeDefined();
-    expect(proof.publicSignals).toHaveLength(6);
+    expect(proof.publicSignals).toHaveLength(8);
     expect(proveCallCount).toBe(1);
   });
 
