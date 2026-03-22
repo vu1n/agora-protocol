@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agora — Last Mile Privacy</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0a;
+    --bg-card: #111111;
+    --bg-card-hover: #161616;
+    --green: #00ff88;
+    --green-dim: #00cc6a;
+    --green-glow: rgba(0, 255, 136, 0.15);
+    --teal: #00d4aa;
+    --purple: #a855f7;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --text-bright: #ffffff;
+    --border: #222;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Inter', sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 60px 40px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 80px;
+    position: relative;
+  }
+
+  .header::before {
+    content: '0x00ff88';
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green-dim);
+    opacity: 0.4;
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .header h1 {
+    font-family: var(--mono);
+    font-size: 48px;
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: -1px;
+    margin-bottom: 8px;
+  }
+
+  .header h1 span {
+    color: var(--green);
+  }
+
+  .header .subtitle {
+    font-size: 18px;
+    color: var(--text-dim);
+    font-weight: 300;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  /* Flow section */
+  .flow-section {
+    margin-bottom: 60px;
+  }
+
+  .flow-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 24px;
+    padding-left: 4px;
+  }
+
+  .flow-label::before {
+    content: '▸ ';
+  }
+
+  /* Flow grid */
+  .flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    position: relative;
+  }
+
+  .flow-step {
+    flex: 1;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 28px 20px;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+
+  .flow-step:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--green);
+    box-shadow: 0 0 30px var(--green-glow);
+  }
+
+  .flow-step:first-child { border-radius: 8px 0 0 8px; }
+  .flow-step:last-child { border-radius: 0 8px 8px 0; }
+
+  .flow-step .step-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--green-dim);
+    margin-bottom: 12px;
+    opacity: 0.6;
+  }
+
+  .flow-step h3 {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 10px;
+    line-height: 1.3;
+  }
+
+  .flow-step p {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .flow-step .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-top: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .tag-green { background: rgba(0,255,136,0.1); color: var(--green); border: 1px solid rgba(0,255,136,0.2); }
+  .tag-purple { background: rgba(168,85,247,0.1); color: var(--purple); border: 1px solid rgba(168,85,247,0.2); }
+  .tag-amber { background: rgba(245,158,11,0.1); color: var(--amber); border: 1px solid rgba(245,158,11,0.2); }
+  .tag-teal { background: rgba(0,212,170,0.1); color: var(--teal); border: 1px solid rgba(0,212,170,0.2); }
+
+  /* Arrow connectors */
+  .flow-step + .flow-step::before {
+    content: '→';
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--mono);
+    font-size: 16px;
+    color: var(--green);
+    z-index: 2;
+    background: var(--bg);
+    padding: 2px;
+  }
+
+  /* Privacy reveal section */
+  .privacy-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    margin-top: 40px;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .privacy-cell {
+    background: var(--bg-card);
+    padding: 24px;
+    position: relative;
+  }
+
+  .privacy-cell h4 {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+  }
+
+  .privacy-cell .value {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .revealed { color: var(--red); }
+  .hidden { color: var(--green); }
+
+  /* Observer perspective */
+  .observer {
+    margin-top: 60px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 32px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .observer::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--green), var(--teal), var(--purple));
+  }
+
+  .observer h3 {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-bright);
+    margin-bottom: 20px;
+  }
+
+  .observer-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .observer-item {
+    text-align: center;
+    padding: 16px;
+    border-radius: 6px;
+  }
+
+  .observer-item .icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+  }
+
+  .observer-item .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+
+  .observer-item .status {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  /* Circuit details */
+  .circuit {
+    margin-top: 60px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .circuit-stat {
+    background: var(--bg-card);
+    padding: 24px;
+    text-align: center;
+  }
+
+  .circuit-stat .num {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--green);
+    margin-bottom: 4px;
+  }
+
+  .circuit-stat .desc {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* Code snippet */
+  .code-block {
+    background: #0d0d0d;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-top: 40px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.8;
+    overflow-x: auto;
+    position: relative;
+  }
+
+  .code-block::before {
+    content: 'agora-protocol';
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    font-size: 9px;
+    color: var(--text-dim);
+    opacity: 0.4;
+  }
+
+  .code-block .kw { color: var(--purple); }
+  .code-block .fn { color: var(--green); }
+  .code-block .str { color: var(--amber); }
+  .code-block .cm { color: #555; }
+  .code-block .op { color: var(--text-dim); }
+
+  /* Footer */
+  .footer {
+    margin-top: 80px;
+    text-align: center;
+    padding: 40px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .footer a {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+    text-decoration: none;
+    margin: 0 16px;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+  }
+
+  .footer a:hover { opacity: 1; }
+
+  @media (max-width: 768px) {
+    .container { padding: 40px 20px; }
+    .header h1 { font-size: 32px; }
+    .flow { flex-direction: column; }
+    .flow-step:first-child { border-radius: 8px 8px 0 0; }
+    .flow-step:last-child { border-radius: 0 0 8px 8px; }
+    .flow-step + .flow-step::before { content: '↓'; left: 50%; top: -8px; transform: translateX(-50%); }
+    .privacy-grid { grid-template-columns: 1fr; }
+    .observer-grid { grid-template-columns: 1fr; }
+    .circuit { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1><span>AGORA</span></h1>
+    <div class="subtitle">Last Mile Privacy for Agent Commerce</div>
+  </div>
+
+  <!-- Flow 1: Payment Privacy -->
+  <div class="flow-section">
+    <div class="flow-label">Payment Flow — Recipient Privacy</div>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <h3>Discover</h3>
+        <p>Buyer agent finds merchant via ERC-8004 registry. Fetches deal catalog with stealth meta-address.</p>
+        <span class="tag tag-teal">ERC-8004</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <h3>Derive Stealth Address</h3>
+        <p>ECDH on secp256k1. Ephemeral keypair × merchant's viewing pubkey = one-time address. Never reused.</p>
+        <span class="tag tag-green">ERC-5564</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <h3>Pay to Stealth</h3>
+        <p>ERC20 transfer to the derived address. On-chain: "someone paid some address." No link to merchant.</p>
+        <span class="tag tag-green">Stealth Mode</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <h3>Merchant Scans</h3>
+        <p>Viewing key + announcement = detected. Only the merchant can identify their own payments. Funds accessed via spending key.</p>
+        <span class="tag tag-purple">View Tag</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Optional: Railgun enhancement -->
+  <div class="flow-section">
+    <div class="flow-label">Full Privacy Upgrade — Sender + Recipient</div>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-num">alt</div>
+        <h3>Shield via Railgun</h3>
+        <p>Agent's tokens enter the Railgun shielded pool. The deposit is public, but once shielded, the balance is private.</p>
+        <span class="tag tag-purple">Railgun</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">alt</div>
+        <h3>Relay Adapt</h3>
+        <p>SDK generates ZK proof: "I own these shielded tokens." Proof + calldata submitted atomically via Relay Adapt contract.</p>
+        <span class="tag tag-purple">Groth16</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">alt</div>
+        <h3>Unshield to Stealth</h3>
+        <p>Relay Adapt unshields to the stealth address. On-chain: Relay Adapt → stealth. No link to buyer's wallet.</p>
+        <span class="tag tag-green">Full Privacy</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Flow 2: Loyalty Privacy -->
+  <div class="flow-section">
+    <div class="flow-label">Loyalty Flow — Prove Without Revealing</div>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-num">05</div>
+        <h3>Signed Receipt</h3>
+        <p>Merchant signs receipt with EdDSA (Baby Jubjub). Buyer pulls encrypted receipt via ECDH + XChaCha20-Poly1305.</p>
+        <span class="tag tag-amber">EdDSA</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">06</div>
+        <h3>Store Locally</h3>
+        <p>Receipts never leave the buyer's agent. They accumulate privately. The merchant has no customer database.</p>
+        <span class="tag tag-green">Local Only</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">07</div>
+        <h3>Generate ZK Proof</h3>
+        <p>Groth16 proof: "my spend ≥ threshold." EdDSA signatures verified in-circuit. Leaf uniqueness enforced. 82k constraints.</p>
+        <span class="tag tag-purple">Groth16</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">08</div>
+        <h3>Verify On-Chain</h3>
+        <p>LoyaltyManager checks: Merkle root from registry, EdDSA pubkey match, nullifier unused. Returns boolean. Identity never revealed.</p>
+        <span class="tag tag-green">Arbitrum</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- What an observer sees -->
+  <div class="observer">
+    <h3>👁 What an on-chain observer sees</h3>
+    <div class="observer-grid">
+      <div class="observer-item">
+        <div class="icon">💰</div>
+        <div class="label">Payment</div>
+        <div class="status hidden">"0xA1B2 → 0xC3D4"<br>Unknown addresses</div>
+      </div>
+      <div class="observer-item">
+        <div class="icon">🏪</div>
+        <div class="label">Merchant</div>
+        <div class="status hidden">Can't link stealth<br>address to real identity</div>
+      </div>
+      <div class="observer-item">
+        <div class="icon">⭐</div>
+        <div class="label">Loyalty Proof</div>
+        <div class="status hidden">spend ≥ $500 = true<br>Who? Unknown.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Privacy grid: revealed vs hidden -->
+  <div class="flow-section" style="margin-top: 60px;">
+    <div class="flow-label">Privacy Summary</div>
+    <div class="privacy-grid">
+      <div class="privacy-cell">
+        <h4>Buyer Identity</h4>
+        <div class="value hidden">■ Hidden — stealth address is unlinkable</div>
+      </div>
+      <div class="privacy-cell">
+        <h4>Merchant Identity</h4>
+        <div class="value hidden">■ Hidden — only viewing key holder can link</div>
+      </div>
+      <div class="privacy-cell">
+        <h4>Transaction Amount</h4>
+        <div class="value revealed">■ Visible on-chain (stealth mode)</div>
+      </div>
+      <div class="privacy-cell">
+        <h4>Loyalty Spend History</h4>
+        <div class="value hidden">■ Hidden — ZK proof reveals only boolean</div>
+      </div>
+      <div class="privacy-cell">
+        <h4>Purchase Pattern</h4>
+        <div class="value hidden">■ Hidden — receipts stored locally</div>
+      </div>
+      <div class="privacy-cell">
+        <h4>Sender (Railgun mode)</h4>
+        <div class="value hidden">■ Hidden — shielded pool breaks link</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Circuit stats -->
+  <div class="circuit">
+    <div class="circuit-stat">
+      <div class="num">82k</div>
+      <div class="desc">Constraints</div>
+    </div>
+    <div class="circuit-stat">
+      <div class="num">~4s</div>
+      <div class="desc">Proof Gen</div>
+    </div>
+    <div class="circuit-stat">
+      <div class="num">326k</div>
+      <div class="desc">Gas (Arb)</div>
+    </div>
+    <div class="circuit-stat">
+      <div class="num">0ms</div>
+      <div class="desc">Cached</div>
+    </div>
+  </div>
+
+  <!-- Code snippet -->
+  <div class="code-block">
+    <span class="cm">// One SDK. Two privacy modes. Zero customer data.</span><br>
+    <span class="kw">import</span> { AgoraExecutor, planAgoraRecipe } <span class="kw">from</span> <span class="str">"agora-protocol"</span><br>
+    <br>
+    <span class="kw">const</span> plan <span class="op">=</span> <span class="fn">planAgoraRecipe</span>({ token, amount, merchantMeta })<br>
+    <br>
+    <span class="cm">// Stealth mode: recipient privacy</span><br>
+    <span class="kw">await</span> executor.<span class="fn">executeStealth</span>(plan, walletClient)<br>
+    <br>
+    <span class="cm">// Railgun mode: full sender + recipient privacy</span><br>
+    <span class="kw">await</span> executor.<span class="fn">executeRailgun</span>(plan, railgunConfig, walletClient)
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <a href="https://github.com/vu1n/agora-protocol">GitHub</a>
+    <a href="https://arbiscan.io/tx/0x7c525dc1ba7e5cc511dd4d2be6ff6403792fbe095f81043af394a9d9ad920840">On-Chain Proof</a>
+    <a href="https://synthesis.md">The Synthesis</a>
+  </div>
+
+</div>
+
+</body>
+</html>
