@@ -1,0 +1,15 @@
+{
+  "chain": "arbitrum",
+  "chainId": 42161,
+  "deployer": "0x91f0d4a1DD291e83D7d3321813a8299edD13556d",
+  "contracts": {
+    "LoyaltyVerifier": "0xF1Ea8695FEbfc104F095c093474ddC466EB67874",
+    "MerchantRegistry": "0xE876EeC58E79Db135d9E5Fd93E91aBf54eA4f583",
+    "LoyaltyManager": "0xf66FB40f0ABD88Aa31dD88a2EfE65059143dB353"
+  },
+  "arbiscan": {
+    "LoyaltyVerifier": "https://arbiscan.io/address/0xF1Ea8695FEbfc104F095c093474ddC466EB67874",
+    "MerchantRegistry": "https://arbiscan.io/address/0xE876EeC58E79Db135d9E5Fd93E91aBf54eA4f583",
+    "LoyaltyManager": "https://arbiscan.io/address/0xf66FB40f0ABD88Aa31dD88a2EfE65059143dB353"
+  }
+}

@@ -244,9 +244,9 @@ After the transaction, abandon the stealth identity. The merchant never learns y
 ## Contract Addresses (Arbitrum)
 
 ```
-MerchantRegistry: [deployed after hackathon submission]
-LoyaltyManager:   [deployed after hackathon submission]
-LoyaltyVerifier:  [deployed after hackathon submission]
+LoyaltyVerifier:  0xF1Ea8695FEbfc104F095c093474ddC466EB67874 (Arbitrum)
+MerchantRegistry: 0xE876EeC58E79Db135d9E5Fd93E91aBf54eA4f583 (Arbitrum)
+LoyaltyManager:   0xf66FB40f0ABD88Aa31dD88a2EfE65059143dB353 (Arbitrum)
 ```
 
 ## Architecture
