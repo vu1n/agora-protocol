@@ -1,8 +1,8 @@
 # Agora: Private Commerce for AI Agents
 
-**One HTTP call. Private payment. Zero-knowledge loyalty. No SDK required.**
+**An SDK for private commerce. Two payment modes. Zero-knowledge loyalty. No hosted infrastructure.**
 
-Agora is a three-agent protocol where AI agents buy and sell without revealing who they are. A buyer agent sends a single HTTP request to a TEE privacy relay, which generates Railgun ZK proofs inside an Intel TDX enclave. The merchant never sees the buyer. The buyer never touches Railgun directly.
+Agora is an npm package (`agora-protocol`) that gives AI agents private payments and anonymous loyalty proofs. Agents install it, plan a payment, and execute it in one of two modes: stealth (recipient privacy) or Railgun (full sender + recipient privacy). Merchants never see the buyer. The buyer never touches raw cryptography.
 
 Merchants reward repeat customers via ZK loyalty proofs -- no customer database, no tracking, no data liability.
 
@@ -11,32 +11,37 @@ Built for [The Synthesis](https://synthesis.md) hackathon.
 ## Architecture
 
 ```
-Buyer Agent                  TEE Privacy Relay               Merchant Agent
-     |                       (Phala Cloud TDX)                     |
-     |                                                             |
-     |-- 1. GET /attestation ------>|                              |
-     |<-- TDX quote + code hash ----|                              |
-     |   (verify enclave before                                    |
-     |    sending anything)                                        |
-     |                                                             |
-     |-- 2. POST /pay ------------>|                               |
-     |   { token, amount,          |                               |
-     |     merchantStealthMeta }   |                               |
-     |                             |-- Railgun Relay Adapt ------->|
-     |                             |   (shielded pool -> stealth)  |
-     |                             |                               |
-     |<-- stealth announcement ----|                               |
-     |                                                             |
-     |                              Merchant scans announcements --|
-     |                              with viewing key, detects pay  |
-     |                                                             |
-     |-- 3. ZK loyalty proof -----------------------------(on-chain verify)
-     |   "I spent >= $500 at your                                  |
-     |    shop" — no identity                                      |
-     |    revealed                                                 |
+Buyer Agent                                                    Merchant Agent
+     |                                                              |
+     |-- import { AgoraExecutor, planAgoraRecipe } from "agora-protocol"
+     |                                                              |
+     |-- 1. Discover merchant via ERC-8004 registry --------------->|
+     |<-- deal catalog (with stealthMetaAddress) -------------------|
+     |                                                              |
+     |-- 2. planAgoraRecipe({ token, amount, merchantMeta })        |
+     |   (pure calldata — no side effects, no network)              |
+     |                                                              |
+     |-- 3a. executeStealth(plan, walletClient)                     |
+     |       OR                                                     |
+     |-- 3b. executeRailgun(plan, railgunConfig, walletClient)      |
+     |                                                              |
+     |   Stealth mode:                                              |
+     |     ERC20 transfer -> stealth address (recipient privacy)    |
+     |                                                              |
+     |   Railgun mode:                                              |
+     |     Railgun shielded pool -> Relay Adapt -> stealth address  |
+     |     (full sender + recipient privacy)                        |
+     |                                                              |
+     |                              Merchant scans announcements ---|
+     |                              with viewing key, detects pay   |
+     |                                                              |
+     |-- 4. ZK loyalty proof -----------------------------(on-chain verify)
+     |   "I spent >= $500 at your                                   |
+     |    shop" — no identity                                       |
+     |    revealed                                                  |
 ```
 
-**Three agents, one relay call.** The buyer agent never installs Railgun. The relay does the heavy cryptography inside TDX. The merchant scans stealth address announcements to detect payments.
+**Two modes, one planner.** Both stealth and Railgun paths use the same `planAgoraRecipe()` to generate calldata, the same stealth address derivation, and the same on-chain contracts. The executor decides how to submit.
 
 ## Live Deployment
 
@@ -45,23 +50,16 @@ Buyer Agent                  TEE Privacy Relay               Merchant Agent
 | **LoyaltyVerifier** | Arbitrum [`0xF1Ea...7874`](https://arbiscan.io/address/0xF1Ea8695FEbfc104F095c093474ddC466EB67874) |
 | **MerchantRegistry** | Arbitrum [`0xE876...0583`](https://arbiscan.io/address/0xE876EeC58E79Db135d9E5Fd93E91aBf54eA4f583) |
 | **LoyaltyManager** | Arbitrum [`0xf66F...B353`](https://arbiscan.io/address/0xf66FB40f0ABD88Aa31dD88a2EfE65059143dB353) |
-| **TEE Privacy Relay** | Phala TDX [`relay endpoint`](https://7c8a9578d4e316b426d8ea3556e25e99e3c95bad-3100.dstack-pha-prod5.phala.network) |
 | **Agent Identity** | Base ERC-8004 #35295 |
 | **Source** | [github.com/vu1n/agora-protocol](https://github.com/vu1n/agora-protocol) |
 
 ## Privacy Model
 
-### Non-Custodial TEE Relay
+### Two Payment Modes
 
-The relay runs inside an Intel TDX enclave on Phala Cloud. It generates Railgun ZK proofs on behalf of the buyer but **cannot steal keys or redirect funds**:
+**Stealth mode (default):** The agent derives a one-time stealth address from the merchant's meta-address (ERC-5564) and sends ERC20 tokens directly. The merchant scans announcements with their viewing key to detect payments. Recipient privacy is guaranteed -- nobody can link the stealth address to the merchant. The sender's wallet is visible on-chain.
 
-- **Enclave isolation:** The TDX hardware isolates all key material. The relay operator cannot inspect enclave memory.
-- **Attestation-first:** Buyer agents call `GET /attestation` and verify the TDX quote (bound to the Docker image hash) before sending any sensitive data. No trust in Phala required -- verification is via Intel DCAP.
-- **Proof binding:** Each proof authorizes a specific payment to a specific stealth address. The relay cannot rewrite the destination.
-
-### Sender Privacy (Railgun)
-
-Funds move through Railgun's shielded pool via the Relay Adapt contract. The on-chain transaction shows `Relay Adapt -> stealth address` -- no link back to the buyer's wallet.
+**Railgun mode (full privacy):** The agent has a Railgun engine initialized via `@railgun-community/wallet`. The SDK calls `generateCrossContractCallsProof` and `populateProvedCrossContractCalls` to route the payment through Railgun's shielded pool via the Relay Adapt contract to a stealth address. Both sender and recipient are private. The on-chain transaction shows `Relay Adapt -> stealth address` -- no link back to the buyer's wallet.
 
 ### Recipient Privacy (ERC-5564 Stealth Addresses)
 
@@ -111,7 +109,7 @@ Buyer agents discover merchants via the 8004 registry, fetch deal catalogs peer-
 
 ## Testing & Verification
 
-**66 total assertions across 6 verification layers:**
+**63 total assertions across 6 verification layers:**
 
 | Layer | Tool | Tests | Result |
 |-------|------|-------|--------|
@@ -121,21 +119,12 @@ Buyer agents discover merchants via the 8004 registry, fetch deal catalogs peer-
 | Symbolic verification | Halmos | Access control + root binding | 4 proofs verified |
 | Circuit adversarial | Circom/snarkjs | 8 negative inputs (wrong buyer, wrong scope, expired, etc.) | 8/8 rejected |
 | Circuit static analysis | Circomspect | Full circuit | Clean |
-| End-to-end | TypeScript | 21 assertions (relay + on-chain + stealth scanning) | 21/21 pass |
+| End-to-end | TypeScript | 20 assertions (stealth + on-chain + scanning) | 20/20 pass |
 
 ## Project Structure
 
 ```
 agora/
-  relay/
-    index.ts                  <- Hono server (Phala TDX deployment)
-    routes/
-      pay.ts                  <- POST /pay — stealth payment via Railgun
-      shield.ts               <- POST /shield — deposit into shielded pool
-      attestation.ts          <- GET /attestation — TDX quote for agents
-      health.ts               <- GET /health
-    constants.ts              <- chain config + contract addresses
-    Dockerfile                <- Bun alpine image for Phala Cloud CVM
   circuits/
     loyalty_verify.circom     <- unified ZK circuit (loyalty + LTV + time-bounded)
     generate_test_witness.mjs <- smoke test
@@ -154,18 +143,19 @@ agora/
     proof-cache.ts     <- pre-generates proofs for instant checkout
     types.ts
     demo.ts            <- end-to-end demo (3 proof types)
-    e2e.ts             <- full relay + on-chain integration test
+    e2e.ts             <- full stealth + on-chain integration test
     sdk/
+      index.ts         <- SDK public surface (exports)
       stealth.ts       <- ERC-5564 stealth address derivation
       recipe.ts        <- payment + loyalty proof orchestration
-      executor.ts      <- Railgun integration boundary + simulation
+      executor.ts      <- stealth + Railgun execution modes
       bazaar.ts        <- deal discovery via ERC-8004 agent cards
+      types.ts         <- shared types (CallIntent, RecipePlan, etc.)
       steps/
         payment.ts     <- stealth payment calldata generation
         loyalty.ts     <- ZK proof submission calldata generation
   skill-buyer.md       <- agent skill doc for buyers
   skill-merchant.md    <- agent skill doc for merchants
-  phala.toml           <- Phala Cloud deployment config
 ```
 
 ## Quick Start
@@ -173,9 +163,6 @@ agora/
 ```bash
 # Install dependencies
 bun install
-
-# Run the relay locally
-bun run relay/index.ts
 
 # Run TypeScript tests
 bun test
@@ -186,21 +173,19 @@ cd contracts && forge test -vvv
 # Run circuit negative tests
 cd circuits && node negative_tests.mjs
 
-# Run full E2E (needs Anvil + local relay)
+# Run full E2E (needs Anvil)
 anvil &
-bun run relay/index.ts &
 npx tsx src/e2e.ts
 ```
 
 ## Agent Skill Docs
 
-- **[Buyer Skill](./skill-buyer.md)** -- how buyer agents discover deals, pay privately, prove loyalty
+- **[Buyer Skill](./skill-buyer.md)** -- how buyer agents install the SDK, pay privately, prove loyalty
 - **[Merchant Skill](./skill-merchant.md)** -- how merchant agents register, publish deals, verify proofs
 
 ## What's Next
 
-- **Full Railgun engine wiring in TEE** -- the relay currently plans the payment and generates stealth calldata, but does not yet submit the final Railgun proof through the shielded pool
-- **Real TDX attestation quotes** -- the Nitro attestation endpoint returns mock quotes in dev; production needs to return verifiable Intel TDX quotes via Phala's dstack SDK
+- **Full Railgun engine helper** -- convenience wrapper for `startRailgunEngine` + `createRailgunWallet` + `loadProvider` to reduce init boilerplate for agents choosing Railgun mode
 - **EdDSA receipt signing** -- Baby Jubjub signatures for efficient in-circuit receipt verification (currently receipts are unsigned)
 - **Leaf uniqueness in-circuit** -- enforce that the same receipt cannot be counted twice within a single proof
 
@@ -209,7 +194,7 @@ npx tsx src/e2e.ts
 - **Agent:** Agora (ERC-8004 identity on Base, agent #35295)
 - **Hackathon:** [The Synthesis](https://synthesis.md)
 - **Tracks:** Private Agents Trusted Actions (Venice), Synthesis Open Track, Agents With Receipts (Protocol Labs), Future of Commerce (Slice)
-- **Built with:** Circom, snarkjs, Foundry, Halmos, Hono, viem, Phala Cloud, TypeScript
+- **Built with:** Circom, snarkjs, Foundry, Halmos, viem, @railgun-community/wallet, TypeScript
 - **Model:** Claude Opus 4.6 | **Harness:** Claude Code
 
 ## License

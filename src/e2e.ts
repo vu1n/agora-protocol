@@ -1,17 +1,17 @@
 /**
- * End-to-end test: full agent experience through the relay.
+ * End-to-end test: full agent experience with stealth payments.
  *
  * Simulates the complete flow:
  *   1. Merchant registers on-chain + publishes deal via 8004 agent card
  *   2. Buyer discovers merchant, evaluates deal
- *   3. Buyer calls relay for private stealth payment
+ *   3. Buyer derives stealth address + plans payment
  *   4. Merchant detects payment via stealth scanning
  *   5. Merchant issues receipt, updates Merkle root
  *   6. Buyer generates ZK loyalty proof (cached)
  *   7. Buyer submits loyalty proof on-chain
  *   8. Replay rejected
  *
- * Runs against local Anvil + local relay.
+ * Runs against local Anvil.
  */
 import {
   createPublicClient,
@@ -38,7 +38,6 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const USDC_DECIMALS = 1_000_000;
-const RELAY_URL = process.env.RELAY_URL ?? "http://localhost:3100";
 
 // Anvil accounts
 const DEPLOYER = privateKeyToAccount("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
@@ -149,48 +148,43 @@ async function main() {
   assert(deal.item === "Espresso", "Buyer found Espresso deal");
   assert(deal.discountBps === 500, "Deal offers 5% loyalty discount");
 
-  // ── 3. Buyer calls relay for private payment ──
-  console.log("\n3. Buyer calls relay for private stealth payment");
+  // ── 3. Buyer derives stealth address + plans payment ──
+  console.log("\n3. Buyer derives stealth address for private payment");
 
-  const relayResponse = await fetch(`${RELAY_URL}/pay`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      token: "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8",
-      amount: deal.price.toString(),
-      merchantStealthMeta: deal.stealthMetaAddress,
-      fee: "50000",
-    }),
+  const { planStealthPayment, deriveStealthAddress } = await import("./sdk/index.js");
+
+  const stealth = deriveStealthAddress({
+    spendingPubKey: deal.stealthMetaAddress.spendingPubKey as Hex,
+    viewingPubKey: deal.stealthMetaAddress.viewingPubKey as Hex,
   });
-  const relayResult = await relayResponse.json() as {
-    status: string;
-    stealthAddress: string;
-    ephemeralPubKey: string;
-    viewTag: number;
-    crossContractCalls: { to: string; data: string }[];
-  };
 
-  assert(relayResult.status === "planned", "Relay planned the payment");
-  assert(relayResult.stealthAddress.startsWith("0x"), "Stealth address derived");
-  assert(relayResult.ephemeralPubKey.startsWith("0x"), "Ephemeral pubkey returned");
-  assert(typeof relayResult.viewTag === "number", "View tag returned");
-  assert(relayResult.crossContractCalls.length === 1, "One cross-contract call (ERC20 transfer)");
-  assert(
-    relayResult.crossContractCalls[0].data.startsWith("0xa9059cbb"),
-    "Calldata is ERC20 transfer selector",
-  );
+  assert(stealth.stealthAddress.startsWith("0x"), "Stealth address derived");
+  assert(stealth.ephemeralPubKey.startsWith("0x"), "Ephemeral pubkey returned");
+  assert(typeof stealth.viewTag === "number", "View tag returned");
+
+  const payment = planStealthPayment({
+    token: "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8" as `0x${string}`,
+    amount: BigInt(deal.price),
+    merchantMeta: {
+      spendingPubKey: deal.stealthMetaAddress.spendingPubKey as Hex,
+      viewingPubKey: deal.stealthMetaAddress.viewingPubKey as Hex,
+    },
+  });
+
+  assert(payment.stepOutput.calls.length === 1, "One call (ERC20 transfer)");
+  assert(payment.stepOutput.calls[0].data.startsWith("0xa9059cbb"), "Calldata is ERC20 transfer");
 
   // ── 4. Merchant detects payment ──
   console.log("\n4. Merchant scans for stealth payment");
   const detected = checkStealthAddress(
-    relayResult.ephemeralPubKey as Hex,
-    relayResult.viewTag,
+    stealth.ephemeralPubKey,
+    stealth.viewTag,
     merchantStealth.viewingPrivKey,
     merchantStealth.meta.spendingPubKey,
   );
 
   assert(detected.match, "Merchant detected the stealth payment");
-  assert(detected.stealthAddress === relayResult.stealthAddress, "Stealth addresses match");
+  assert(detected.stealthAddress === stealth.stealthAddress, "Stealth addresses match");
 
   // ── 5. Merchant issues receipt + updates root ──
   console.log("\n5. Merchant issues receipt, updates Merkle root");

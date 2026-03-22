@@ -1,15 +1,15 @@
 /**
- * RailgunExecutor: handles the unshield → calls → reshield pipeline.
+ * AgoraExecutor: executes payment plans on-chain.
  *
- * Takes a RecipePlan (pure calldata) and executes it through Railgun's
- * privacy layer. Responsible for:
- *   - Verifying merchant root hasn't changed since planning
- *   - Wrapping calls in Railgun's Relay Adapt contract
- *   - Generating the Railgun ZK proof (shield/unshield)
- *   - Submitting the final transaction
+ * Two modes:
+ *   1. Stealth mode (default): agent sends directly to stealth address.
+ *      Recipient privacy via ERC-5564. Sender is visible on-chain.
  *
- * This module separates execution concerns from planning (recipe.ts).
- * The Recipe is pure; the Executor has side effects.
+ *   2. Railgun mode: agent routes through Railgun's shielded pool.
+ *      Full sender + recipient privacy. Requires the agent to have
+ *      initialized the Railgun engine via @railgun-community/wallet.
+ *
+ * Both modes use the same recipe planner, contracts, and loyalty proofs.
  */
 import {
   createPublicClient,
@@ -17,8 +17,21 @@ import {
   parseAbi,
   type Address,
   type Hex,
-  type Chain,
+  type WalletClient,
 } from "viem";
+import {
+  generateCrossContractCallsProof,
+  populateProvedCrossContractCalls,
+} from "@railgun-community/wallet";
+import {
+  TXIDVersion,
+  NetworkName,
+  type TransactionGasDetails,
+  type RailgunERC20Amount,
+  type RailgunERC20Recipient,
+  type RailgunERC20AmountRecipient,
+} from "@railgun-community/shared-models";
+import type { ContractTransaction } from "ethers";
 import type { RecipePlan, AgoraSDKConfig } from "./types.js";
 
 const registryAbi = parseAbi([
@@ -26,23 +39,39 @@ const registryAbi = parseAbi([
 ]);
 
 export interface ExecutionResult {
-  txHash: Hex;
-  gasUsed: bigint;
-  rootVerified: boolean;
+  txHashes: Hex[];
+  totalGasUsed: bigint;
+  mode: "stealth" | "railgun";
 }
 
-export class RailgunExecutor {
+export interface RailgunConfig {
+  walletID: string;
+  encryptionKey: string;
+  /** e.g. NetworkName.Arbitrum */
+  networkName: NetworkName;
+  /** Tokens to unshield for this transaction */
+  unshieldERC20Amounts: RailgunERC20Amount[];
+  /** Where to reshield leftover tokens */
+  reshieldERC20Recipients?: RailgunERC20Recipient[];
+  /** Gas details for the transaction */
+  gasDetails: TransactionGasDetails;
+  /** Broadcaster fee (optional — omit if submitting directly) */
+  broadcasterFee?: RailgunERC20AmountRecipient;
+  /** Set true if agent is paying gas from a public wallet */
+  sendWithPublicWallet?: boolean;
+}
+
+export class AgoraExecutor {
   private config: AgoraSDKConfig;
-  private client;
+  private publicClient;
 
   constructor(config: AgoraSDKConfig) {
     this.config = config;
-    this.client = createPublicClient({ transport: http(this.config.rpcUrl) });
+    this.publicClient = createPublicClient({ transport: http(config.rpcUrl) });
   }
 
   /**
    * Verify that the merchant root hasn't changed since the recipe was planned.
-   * Call this before submitting — a root change invalidates the ZK proof.
    */
   async verifyRootSnapshot(
     plan: RecipePlan,
@@ -51,7 +80,7 @@ export class RailgunExecutor {
       return { valid: true, currentRoot: "0x" as Hex };
     }
 
-    const currentRoot = (await this.client.readContract({
+    const currentRoot = (await this.publicClient.readContract({
       address: this.config.contracts.registry,
       abi: registryAbi,
       functionName: "getPurchaseRoot",
@@ -65,72 +94,130 @@ export class RailgunExecutor {
   }
 
   /**
-   * Execute a recipe plan through Railgun.
-   *
-   * In production, this would:
-   *   1. Verify root snapshot
-   *   2. Call Railgun Wallet SDK to generate cross-contract call proof
-   *   3. Submit via broadcaster (for full sender privacy) or directly
-   *
-   * For the hackathon, this demonstrates the interface. Full Railgun
-   * Wallet SDK integration requires:
-   *   - Initialized RailgunEngine with LevelDB
-   *   - Downloaded proving artifacts (~100MB)
-   *   - Merkle tree scan of on-chain events
-   *   - PPOI validation
-   *
-   * The Recipe + Steps are complete and correct. This executor is the
-   * integration boundary where Railgun SDK calls would be wired in.
+   * Execute in stealth mode: send directly to stealth addresses.
+   * Provides recipient privacy. Sender is visible on-chain.
    */
-  async execute(plan: RecipePlan): Promise<ExecutionResult> {
-    // 1. Verify root hasn't changed
+  async executeStealth(
+    plan: RecipePlan,
+    walletClient: WalletClient,
+  ): Promise<ExecutionResult> {
     const rootCheck = await this.verifyRootSnapshot(plan);
     if (!rootCheck.valid) {
       throw new Error(
-        `Merchant root changed since recipe was planned. ` +
-        `Expected ${plan.merchantRootSnapshot?.root}, got ${rootCheck.currentRoot}. ` +
-        `Re-plan the recipe with the current root.`,
+        `Merchant root changed. Expected ${plan.merchantRootSnapshot?.root}, got ${rootCheck.currentRoot}.`,
       );
     }
 
-    // 2. In production: wrap calls in Railgun unshield/reshield
-    //
-    // The Railgun Wallet SDK flow would be:
-    //
-    //   import { populateProvedCrossContractCalls } from '@railgun-community/wallet';
-    //
-    //   const crossContractCalls = plan.allCalls.map(c => ({
-    //     to: c.to,
-    //     data: c.data,
-    //     value: c.value ?? 0n,
-    //   }));
-    //
-    //   const { transaction } = await populateProvedCrossContractCalls(
-    //     txidVersion,
-    //     networkName,
-    //     railgunWalletID,
-    //     erc20AmountRecipients,      // unshield amounts
-    //     [],                          // NFTs
-    //     [],                          // relay adapt unshield
-    //     [],                          // relay adapt shield
-    //     crossContractCalls,          // our recipe's calls
-    //     broadcasterFee,
-    //     sendWithPublicWallet,
-    //     overallBatchMinGasPrice,
-    //     gasDetails,
-    //   );
-    //
-    //   const txHash = await wallet.sendTransaction(transaction);
+    const txHashes: Hex[] = [];
+    let totalGasUsed = 0n;
 
-    throw new Error(
-      "Full Railgun execution requires initialized RailgunEngine. " +
-      "Use simulate() for local testing, or wire in the Wallet SDK for production.",
-    );
+    for (const call of plan.allCalls) {
+      const hash = await walletClient.sendTransaction({
+        to: call.to,
+        data: call.data,
+        value: call.value,
+        chain: walletClient.chain,
+        account: walletClient.account!,
+      });
+      const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+      txHashes.push(hash);
+      totalGasUsed += receipt.gasUsed;
+    }
+
+    return { txHashes, totalGasUsed, mode: "stealth" };
   }
 
   /**
-   * Simulate the recipe against a local fork or live RPC.
-   * Dry-runs all calls sequentially to check for reverts before proving.
+   * Execute in Railgun mode: route through the shielded pool.
+   * Full sender + recipient privacy.
+   *
+   * Prerequisites:
+   *   - Agent has called startRailgunEngine() from @railgun-community/wallet
+   *   - Agent has a Railgun wallet (createRailgunWallet or loadWalletByID)
+   *   - Agent has shielded tokens in their Railgun balance
+   *   - Agent has called loadProvider() with their Arbitrum RPC
+   *
+   * The plan's crossContractCalls are wrapped in:
+   *   unshield → execute calls → reshield change
+   */
+  async executeRailgun(
+    plan: RecipePlan,
+    railgun: RailgunConfig,
+    walletClient: WalletClient,
+  ): Promise<ExecutionResult> {
+    const rootCheck = await this.verifyRootSnapshot(plan);
+    if (!rootCheck.valid) {
+      throw new Error(
+        `Merchant root changed. Expected ${plan.merchantRootSnapshot?.root}, got ${rootCheck.currentRoot}.`,
+      );
+    }
+
+    // Convert our CallIntents to ethers ContractTransaction format
+    const crossContractCalls: ContractTransaction[] = plan.allCalls.map(c => ({
+      to: c.to,
+      data: c.data,
+      value: c.value ?? 0n,
+    }));
+
+    // Generate the Railgun ZK proof for cross-contract calls
+    // This proves: "I own these shielded tokens, unshield them,
+    // execute these calls, reshield the change"
+    await generateCrossContractCallsProof(
+      TXIDVersion.V2_PoseidonMerkle,
+      railgun.networkName,
+      railgun.walletID,
+      railgun.encryptionKey,
+      railgun.unshieldERC20Amounts,
+      [],  // no NFTs
+      railgun.reshieldERC20Recipients ?? [],
+      [],  // no NFT reshield
+      crossContractCalls,
+      railgun.broadcasterFee ?? undefined,
+      railgun.sendWithPublicWallet ?? false,
+      0n,  // overallBatchMinGasPrice
+      undefined,  // minGasLimit (use default)
+      (progress) => {
+        // Progress callback — agent can log this
+      },
+    );
+
+    // Populate the proved transaction (uses cached proof from above)
+    const { transaction } = await populateProvedCrossContractCalls(
+      TXIDVersion.V2_PoseidonMerkle,
+      railgun.networkName,
+      railgun.walletID,
+      railgun.unshieldERC20Amounts,
+      [],  // no NFTs
+      railgun.reshieldERC20Recipients ?? [],
+      [],  // no NFT reshield
+      crossContractCalls,
+      railgun.broadcasterFee ?? undefined,
+      railgun.sendWithPublicWallet ?? false,
+      0n,  // overallBatchMinGasPrice
+      railgun.gasDetails,
+    );
+
+    // Submit the transaction
+    const hash = await walletClient.sendTransaction({
+      to: transaction.to as Address,
+      data: transaction.data as Hex,
+      value: transaction.value ? BigInt(transaction.value.toString()) : undefined,
+      gasLimit: transaction.gasLimit ? BigInt(transaction.gasLimit.toString()) : undefined,
+      chain: walletClient.chain,
+      account: walletClient.account!,
+    });
+
+    const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+
+    return {
+      txHashes: [hash],
+      totalGasUsed: receipt.gasUsed,
+      mode: "railgun",
+    };
+  }
+
+  /**
+   * Simulate the recipe against a live RPC (stealth mode).
    */
   async simulate(
     plan: RecipePlan,
@@ -144,10 +231,9 @@ export class RailgunExecutor {
       };
     }
 
-    // Simulate all calls in parallel
     const results = await Promise.allSettled(
       plan.allCalls.map(call =>
-        this.client.estimateGas({
+        this.publicClient.estimateGas({
           account: fromAddress,
           to: call.to,
           data: call.data,

@@ -1,17 +1,15 @@
-// Agora SDK — client-side orchestration for private commerce
+// Agora SDK — private commerce for AI agents
 //
-// Architecture:
-//   Recipe (pure planning) → Executor (Railgun integration) → On-chain verification
+// Two payment modes:
+//   Stealth (default): recipient privacy via ERC-5564 stealth addresses
+//   Railgun (upgrade):  full sender+recipient privacy via shielded pool
 //
-// Control is split across layers:
-//   - Railgun: privacy substrate (immutable contracts)
-//   - Agora contracts: application logic (deployed, verifiable)
-//   - This SDK: local planning (runs in agent's process, open source)
+// Both modes use the same recipe planner, contracts, and loyalty proofs.
 
 export { planAgoraRecipe, type AgoraRecipeParams, type AgoraRecipeResult } from "./recipe.js";
 export { planStealthPayment, type StealthPaymentParams } from "./steps/payment.js";
 export { planLoyaltyProof, type LoyaltyProofParams } from "./steps/loyalty.js";
-export { RailgunExecutor, type ExecutionResult } from "./executor.js";
+export { AgoraExecutor, type ExecutionResult, type RailgunConfig } from "./executor.js";
 export { DealDiscovery, type Deal, type AgentRegistration } from "./bazaar.js";
 export {
   deriveStealthAddress,
