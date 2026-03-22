@@ -1,172 +1,174 @@
 # Agora: ZK Privacy-Commerce Protocol
 
-**Zero-knowledge loyalty proofs for AI agents.** Merchants reward loyal customers without ever tracking them.
+**Private payments. Zero-knowledge loyalty. No tracking.**
+
+Agora lets AI agents transact privately and prove customer loyalty without revealing identity. Merchants reward loyal customers via ZK proofs — no customer database, no tracking, no data liability.
 
 Built for [The Synthesis](https://synthesis.md) hackathon.
 
-## What It Does
-
-Agora lets a buyer's agent prove they've spent above a threshold with a merchant — without revealing their identity, transaction history, or specific amounts. The merchant verifies the proof on-chain and applies a loyalty discount. No customer database. No tracking. No data liability.
+## How It Works
 
 ```
 Buyer Agent                              Merchant Agent
-    │                                         │
-    │  purchases over time (private)          │
-    ├────────────────────────────────────────▶│
-    │                                         │
-    │              receipts (stored locally)   │
-    │◀────────────────────────────────────────┤
-    │                                         │
-    │  ZK proof: "I spent ≥ $500 with you"    │
-    ├────────────────────────────────────────▶│
-    │                                         │
-    │  Merchant verifies on-chain             │
-    │  Applies Silver tier discount (5%)      │
-    │◀────────────────────────────────────────┤
-    │                                         │
-    │  Merchant never learns WHO the buyer is │
+     │                                       │
+     ├─ Discover merchant via ERC-8004 ─────▶│
+     ├─ Fetch deals from agent card ────────▶│
+     │                                       │
+     ├─ Derive stealth address               │
+     ├─ Fund via Railgun (unlinkable)        │
+     ├─ Pay to merchant's stealth addr ────▶│  (neither side sees the other's identity)
+     │                                       │
+     │  ◀── receipt (off-chain) ─────────────┤
+     ├─ Store receipt locally                │
+     │                                       │
+     ├─ ZK proof: "I spent ≥ $500 with you"  │
+     ├─ Submit proof on-chain ─────────────▶│  (merchant verifies, applies discount)
+     │                                       │
+     │  Buyer identity never revealed        │
 ```
+
+## Three Proof Types, One Circuit
+
+| Use case | scopeCommitment | minTimestamp | Example |
+|----------|----------------|-------------|---------|
+| **Per-merchant loyalty** | `hash(sellerId)` | `0` (all time) | "I spent ≥$500 at your shop" |
+| **Time-bounded loyalty** | `hash(sellerId)` | `now - 90 days` | "I spent ≥$300 at your shop in the last 90 days" |
+| **Cross-category LTV** | `hash(categoryId)` | `0` or bounded | "I spent ≥$400 across all coffee shops" |
+
+One unified Circom circuit handles all three. The merchant decides what thresholds matter — the protocol just proves facts.
 
 ## Trust Model
 
 **Merchant-published Merkle root is the trust anchor.**
 
-1. Each purchase creates a receipt leaf: `Poseidon(sellerCommitment, amount, buyerCommitment, salt)`
-2. The merchant inserts leaves into a Merkle tree and publishes the root on-chain via `MerchantRegistry`
-3. The buyer's agent generates a Groth16 ZK proof against that on-chain root
-4. `LoyaltyManager` reads the root from the registry (not from the caller) and verifies the proof
-5. A nullifier `Poseidon(buyerSecret, merkleRoot)` prevents replay — one proof per buyer per root version
+- Merchant builds a Merkle tree of purchase receipts and publishes the root on-chain
+- Buyer proves inclusion of their purchases against that on-chain root
+- `LoyaltyManager` reads the root from `MerchantRegistry` — callers cannot supply their own
+- Nullifier = `Poseidon(buyerSecret, merkleRoot)` — one proof per buyer per root version
+- `buyerCommitment` in every leaf prevents impersonation
 
-**What this prevents:**
-- **Fabricated roots:** Root comes from on-chain registry, not the caller
-- **Replay:** Nullifier bound to (buyer, root), marked as used on-chain
-- **Impersonation:** `buyerCommitment` is embedded in every leaf — only the secret holder can prove
-- **Tracking:** The merchant sees "someone qualified for Silver tier," not who
+## Privacy Layers
 
-## Architecture
+**Stealth addresses (ERC-5564):** Buyer derives a one-time address from the merchant's public meta-address. Merchant scans announcements with their viewing key to detect payments. Neither side learns the other's identity.
 
+**Railgun integration:** Stealth addresses are funded from the Railgun shielded pool, breaking the on-chain link between buyer and payment. The SDK provides a Recipe pattern — a client-side orchestration layer that generates typed call intents, executed through Railgun's Relay Adapt contract.
+
+**Stealth intents:** Buyers can post "looking to buy X" from throwaway stealth-address-backed ERC-8004 identities. Funded only for one transaction. Merchants discover and respond. Buyer stays anonymous.
+
+## Deal Discovery via ERC-8004
+
+No separate bazaar contract. Merchants advertise through their ERC-8004 agent registration:
+
+```json
+{
+  "services": [
+    { "type": "agora-deals", "endpoint": "https://shop.example/deals.json" },
+    { "type": "agora-skill", "endpoint": "https://github.com/vu1n/agora-protocol/blob/main/skill-buyer.md" }
+  ]
+}
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     ZK Layer (Circom)                    │
-│  loyalty_verify.circom — Groth16, 22,533 constraints    │
-│  8 purchases max, Merkle depth 10 (1024 leaves)         │
-│  Poseidon hashing, buyer commitment binding              │
-└────────────────────────┬────────────────────────────────┘
-                         │ generates
-┌────────────────────────▼────────────────────────────────┐
-│              Contract Layer (Solidity, Arbitrum)          │
-│                                                          │
-│  LoyaltyVerifier   — Auto-generated Groth16 verifier    │
-│  MerchantRegistry  — Agent ID → signing key + root      │
-│  LoyaltyManager    — Verifies proofs, tracks nullifiers │
-└────────────────────────┬────────────────────────────────┘
-                         │ called by
-┌────────────────────────▼────────────────────────────────┐
-│              Agent Layer (TypeScript)                     │
-│                                                          │
-│  AgoraProver — Builds Merkle trees, generates proofs    │
-│  Demo        — End-to-end flow against Anvil/Arbitrum   │
-└─────────────────────────────────────────────────────────┘
-```
+
+Buyer agents discover merchants via the 8004 registry, fetch deal catalogs peer-to-peer, and evaluate them locally against private spend history. The `agora-skill` service link lets new buyers onboard automatically.
 
 ## Performance
 
 | Metric | Value |
 |--------|-------|
-| Circuit constraints | 22,533 non-linear |
-| Proof generation | ~2.4 seconds |
-| On-chain verification gas | ~306k gas |
+| Circuit constraints | 23,245 non-linear |
+| Proof generation (cold) | ~2.2s |
+| Proof generation (cached) | 0ms |
+| On-chain verification gas | ~306k |
 | On-chain verification cost (Arbitrum) | ~$0.05-0.10 |
 | Per-purchase on-chain cost | $0 (receipts stored locally) |
 
+## Project Structure
+
+```
+agora/
+  circuits/
+    loyalty_verify.circom     ← unified ZK circuit (loyalty + LTV + time-bounded)
+    generate_test_witness.mjs ← smoke test
+    negative_tests.mjs        ← adversarial input tests
+  contracts/
+    src/
+      LoyaltyVerifier.sol     ← auto-generated Groth16 verifier
+      MerchantRegistry.sol    ← agent ID → signing key + Merkle root
+      LoyaltyManager.sol      ← proof verification + nullifier tracking
+    test/
+      LoyaltyManager.t.sol           ← 9 unit tests with real proofs
+      LoyaltyManager.invariant.t.sol ← stateful fuzz testing (128k call sequences)
+      LoyaltyManager.symbolic.t.sol  ← Halmos symbolic verification
+  src/
+    prover.ts          ← Poseidon Merkle tree + Groth16 proof generation
+    proof-cache.ts     ← pre-generates proofs for instant checkout
+    types.ts
+    demo.ts            ← end-to-end demo (3 proof types)
+    sdk/
+      stealth.ts       ← ERC-5564 stealth address derivation
+      recipe.ts        ← client-side payment + loyalty proof orchestration
+      executor.ts      ← Railgun integration boundary + simulation
+      bazaar.ts        ← deal discovery via ERC-8004 agent cards
+      steps/
+        payment.ts     ← stealth payment calldata generation
+        loyalty.ts     ← ZK proof submission calldata generation
+  skill-buyer.md       ← agent skill doc for buyers
+  skill-merchant.md    ← agent skill doc for merchants
+```
+
+## Testing & Verification
+
+| Tool | What | Result |
+|------|------|--------|
+| **Foundry unit tests** | 9 tests with real Groth16 proof verification | 9/9 pass |
+| **Foundry invariant fuzz** | 128k random call sequences, 3 invariants | 3/3 hold |
+| **Halmos symbolic** | Formal verification of access control + root binding | 4/6 proven (2 errored on ecPairing) |
+| **Circomspect** | Static analysis of circom circuit | Clean |
+| **Circuit negative tests** | 8 adversarial inputs (wrong buyer, wrong scope, expired, etc.) | 8/8 correctly rejected |
+
 ## Quick Start
-
-### Prerequisites
-
-- [Circom](https://docs.circom.io/getting-started/installation/) compiler
-- [Foundry](https://book.getfoundry.sh/getting-started/installation) (forge, anvil)
-- [Bun](https://bun.sh) or Node.js 18+
-
-### Setup
 
 ```bash
 # Install dependencies
-cd agora
 bun install
-
-# Install circuit dependencies (circomlib, snarkjs)
 cd ../sen-commerce/circuits && bun install && cd ../../agora
 
-# Compile circuit (already done — artifacts in circuits/build/)
-cd circuits
-circom loyalty_verify.circom --r1cs --wasm --sym -o build -l ../../sen-commerce/circuits/node_modules
-
-# Trusted setup
-cd build
-npx snarkjs groth16 setup loyalty_verify.r1cs powersOfTau28_hez_final_16.ptau loyalty_verify_0000.zkey
-echo "hackathon entropy" | npx snarkjs zkey contribute loyalty_verify_0000.zkey loyalty_verify_final.zkey --name="Agora" -v
-npx snarkjs zkey export verificationkey loyalty_verify_final.zkey verification_key.json
-npx snarkjs zkey export solidityverifier loyalty_verify_final.zkey LoyaltyVerifier.sol
-cd ../..
-
-# Build contracts
-cd contracts && forge build && cd ..
-```
-
-### Run Demo
-
-```bash
-# Start local chain
+# Run demo (start Anvil first)
 anvil &
-
-# Run end-to-end demo
 npx tsx src/demo.ts
-```
 
-### Run Contract Tests
-
-```bash
+# Run contract tests
 cd contracts && forge test -vvv
+
+# Run circuit smoke test
+cd circuits && node generate_test_witness.mjs
+
+# Run circuit negative tests
+cd circuits && node negative_tests.mjs
+
+# Run benchmark (proof cache performance)
+npx tsx src/bench.ts
 ```
 
-## Contracts
+## Agent Skill Docs
 
-| Contract | Description |
-|----------|-------------|
-| `LoyaltyVerifier.sol` | Auto-generated Groth16 verifier from circom circuit |
-| `MerchantRegistry.sol` | Maps ERC-8004 agent IDs to merchant configs + Merkle roots |
-| `LoyaltyManager.sol` | Orchestrates proof verification, nullifier tracking, events |
-
-## Circuit
-
-**`circuits/loyalty_verify.circom`** — Fixed and extended from `sen-commerce/circuits/loyalty_verify.circom`:
-
-- **Added** `merkleRoot` as public input — all Merkle paths constrained against on-chain root
-- **Added** `buyerSecret` private input and `buyerCommitment` in leaf hash — prevents impersonation
-- **Added** `nullifier` as public output — `Poseidon(buyerSecret, merkleRoot)` prevents replay
-- **Fixed** MerkleTreeChecker to use dual Mux1 for proper G1/G2 coordinate selection
-
-Public signals: `[merkleRoot, sellerCommitment, threshold, purchaseCount]`
-Public outputs: `[nullifier, valid]`
+- **[Buyer Skill](./skill-buyer.md)** — how buyer agents discover deals, pay privately, prove loyalty
+- **[Merchant Skill](./skill-merchant.md)** — how merchant agents register, publish deals, verify proofs
 
 ## What's Next
 
-This hackathon demo proves the core protocol. Production extensions:
+- **Full Railgun SDK wiring** — the executor interface is defined, connecting to `@railgun-community/wallet` for actual shielded pool operations
+- **Stealth intent marketplace** — ephemeral 8004 identities for anonymous buyer-side discovery
+- **EdDSA receipt signing** — Baby Jubjub signatures for efficient in-circuit receipt verification
+- **Leaf uniqueness enforcement** — in-circuit check preventing duplicate receipt counting
+- **Production Arbitrum deployment** — contracts verified on Arbiscan
 
-- **Railgun integration** — Shielded payments via Railgun's on-chain privacy pool. Buyer's agent pays from shielded balance; merchant receives without seeing sender identity.
-- **Stealth addresses** — For non-Railgun merchants. One-time payment addresses prevent linking buyer to recipient.
-- **Deal bazaar** — On-chain registry where merchants publish deals. Buyer agents subscribe and evaluate against private spend history.
-- **ZK LTV proofs** — Prove lifetime value across *categories* of merchants, not just individual ones. "I'm a high spender on coffee" without revealing where.
-- **EdDSA receipt signing** — Receipts signed with efficient EdDSA keys (Baby Jubjub) instead of ECDSA, reducing in-circuit verification cost.
-- **Leaf uniqueness enforcement** — In-circuit check that no receipt is counted twice in a single proof.
+## Hackathon
 
-## Hackathon Details
-
-- **Agent:** Agora (registered on Base via ERC-8004)
+- **Agent:** Agora (ERC-8004 identity on Base, agent #35295)
 - **Hackathon:** [The Synthesis](https://synthesis.md)
+- **Tracks:** Private Agents Trusted Actions (Venice), Synthesis Open Track, Agents With Receipts (Protocol Labs), Future of Commerce (Slice)
 - **Built with:** Circom, snarkjs, Foundry, viem, TypeScript
-- **Model:** Claude Opus 4.6
-- **Harness:** Claude Code
+- **Model:** Claude Opus 4.6 | **Harness:** Claude Code
 
 ## License
 

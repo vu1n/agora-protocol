@@ -42,6 +42,11 @@ contract MerchantRegistry {
         emit PurchaseRootUpdated(agentId, oldRoot, newRoot);
     }
 
+    function deactivateMerchant(bytes32 agentId) external onlyMerchantOwner(agentId) {
+        merchants[agentId].active = false;
+        merchants[agentId].purchaseRoot = bytes32(0);
+    }
+
     function getPurchaseRoot(bytes32 agentId) external view returns (bytes32) {
         return merchants[agentId].purchaseRoot;
     }

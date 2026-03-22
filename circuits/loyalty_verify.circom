@@ -5,19 +5,21 @@ include "../../sen-commerce/circuits/node_modules/circomlib/circuits/comparators
 include "../../sen-commerce/circuits/node_modules/circomlib/circuits/mux1.circom";
 
 /**
- * Agora Loyalty Verification Circuit (Groth16)
+ * Agora Unified Spend Verification Circuit (Groth16)
  *
- * Proves a buyer has spent at least `threshold` with a seller
- * without revealing purchase amounts, identity, or history.
+ * Proves a buyer spent at least `threshold` within a scope (single merchant
+ * OR cross-merchant category) and optionally within a time window.
  *
- * Trust model:
- * - Merchant publishes Merkle root of purchase leaves on-chain
- * - Buyer proves inclusion of their purchases against that root
- * - Nullifier = Poseidon(buyerSecret, merkleRoot) prevents replay
- * - buyerCommitment in leaf prevents impersonation
+ * Use cases:
+ *   - Per-merchant loyalty: scopeCommitment = Poseidon(sellerId)
+ *   - Category LTV:         scopeCommitment = Poseidon("coffee_shops")
+ *   - Time-bounded:         minTimestamp > 0
+ *   - All-time:             minTimestamp = 0
  *
- * Public inputs:  merkleRoot, sellerCommitment, threshold, purchaseCount
- * Public outputs: nullifier, valid
+ * Leaf format: Poseidon(scopeCommitment, amount, buyerCommitment, salt, timestamp)
+ *
+ * Public inputs:  merkleRoot, scopeCommitment, threshold, purchaseCount, minTimestamp
+ * Public outputs: nullifier
  */
 
 template MerkleTreeChecker(levels) {
@@ -38,8 +40,6 @@ template MerkleTreeChecker(levels) {
         leftMux[i].s <== pathIndices[i];
         rightMux[i].s <== pathIndices[i];
 
-        // pathIndex=0: hash(current, sibling)  — current on left
-        // pathIndex=1: hash(sibling, current)  — current on right
         if (i == 0) {
             leftMux[i].c[0] <== leaf;
             leftMux[i].c[1] <== pathElements[i];
@@ -59,23 +59,24 @@ template MerkleTreeChecker(levels) {
     root <== hashers[levels-1].out;
 }
 
-template LoyaltyVerify(maxPurchases, merkleDepth) {
+template AgoraVerify(maxPurchases, merkleDepth) {
     // ── Private inputs ──
     signal input purchaseAmounts[maxPurchases];
     signal input purchaseSalts[maxPurchases];
+    signal input purchaseTimestamps[maxPurchases];
     signal input merklePaths[maxPurchases][merkleDepth];
     signal input merkleIndices[maxPurchases][merkleDepth];
     signal input buyerSecret;
 
     // ── Public inputs ──
     signal input merkleRoot;
-    signal input sellerCommitment;
-    signal input threshold;
-    signal input purchaseCount;
+    signal input scopeCommitment;   // Poseidon(sellerId) OR Poseidon(categoryId)
+    signal input threshold;          // minimum spend to prove
+    signal input purchaseCount;      // how many real purchases (rest are zero-padded)
+    signal input minTimestamp;       // 0 = all time, >0 = only purchases after this
 
     // ── Public outputs ──
     signal output nullifier;
-    signal output valid;
 
     // ── 1. Compute buyer commitment from secret ──
     component buyerCommitmentHasher = Poseidon(1);
@@ -83,28 +84,47 @@ template LoyaltyVerify(maxPurchases, merkleDepth) {
     signal buyerCommitment;
     buyerCommitment <== buyerCommitmentHasher.out;
 
-    // ── 2. Verify each purchase is in the Merkle tree ──
+    // ── 2. Verify each purchase leaf and time constraint ──
     component merkleCheckers[maxPurchases];
     component purchaseHashers[maxPurchases];
+    component timeChecks[maxPurchases];
+    component isZeroAmount[maxPurchases];
+    component timeOrPadding[maxPurchases];
 
     for (var i = 0; i < maxPurchases; i++) {
-        // Hash purchase leaf: Poseidon(sellerCommitment, amount, buyerCommitment, salt)
-        purchaseHashers[i] = Poseidon(4);
-        purchaseHashers[i].inputs[0] <== sellerCommitment;
+        // Leaf: Poseidon(scopeCommitment, amount, buyerCommitment, salt, timestamp)
+        purchaseHashers[i] = Poseidon(5);
+        purchaseHashers[i].inputs[0] <== scopeCommitment;
         purchaseHashers[i].inputs[1] <== purchaseAmounts[i];
         purchaseHashers[i].inputs[2] <== buyerCommitment;
         purchaseHashers[i].inputs[3] <== purchaseSalts[i];
+        purchaseHashers[i].inputs[4] <== purchaseTimestamps[i];
 
-        // Verify Merkle proof
+        // Merkle inclusion
         merkleCheckers[i] = MerkleTreeChecker(merkleDepth);
         merkleCheckers[i].leaf <== purchaseHashers[i].out;
         for (var j = 0; j < merkleDepth; j++) {
             merkleCheckers[i].pathElements[j] <== merklePaths[i][j];
             merkleCheckers[i].pathIndices[j] <== merkleIndices[i][j];
         }
-
-        // Constrain all Merkle proofs against the public root
         merkleCheckers[i].root === merkleRoot;
+
+        // Time constraint: timestamp >= minTimestamp
+        // Padding slots (amount=0) are exempt — they always pass.
+        timeChecks[i] = GreaterEqThan(64);
+        timeChecks[i].in[0] <== purchaseTimestamps[i];
+        timeChecks[i].in[1] <== minTimestamp;
+
+        // isPadding = (amount == 0)
+        isZeroAmount[i] = IsZero();
+        isZeroAmount[i].in <== purchaseAmounts[i];
+
+        // timeOk = isPadding ? 1 : timeCheck.out
+        timeOrPadding[i] = Mux1();
+        timeOrPadding[i].c[0] <== timeChecks[i].out; // active slot: real check
+        timeOrPadding[i].c[1] <== 1;                  // padding: always pass
+        timeOrPadding[i].s <== isZeroAmount[i].out;
+        timeOrPadding[i].out === 1;
     }
 
     // ── 3. Sum purchase amounts ──
@@ -117,17 +137,20 @@ template LoyaltyVerify(maxPurchases, merkleDepth) {
     component gte = GreaterEqThan(64);
     gte.in[0] <== sum;
     gte.in[1] <== threshold;
+    gte.out === 1;
 
-    valid <== gte.out;
-    valid === 1;
+    // ── 5. Range check purchaseCount (constrained non-negative for LessThan safety) ──
+    component countNonNeg = GreaterEqThan(64);
+    countNonNeg.in[0] <== purchaseCount;
+    countNonNeg.in[1] <== 0;
+    countNonNeg.out === 1;
 
-    // ── 5. Range check purchaseCount ──
     component countCheck = LessThan(8);
     countCheck.in[0] <== purchaseCount;
     countCheck.in[1] <== maxPurchases + 1;
     countCheck.out === 1;
 
-    // ── 6. Compute nullifier: bound to buyer identity + tree state ──
+    // ── 6. Nullifier: bound to buyer + tree state ──
     component nullifierHasher = Poseidon(2);
     nullifierHasher.inputs[0] <== buyerSecret;
     nullifierHasher.inputs[1] <== merkleRoot;
@@ -135,4 +158,4 @@ template LoyaltyVerify(maxPurchases, merkleDepth) {
 }
 
 // 8 purchases max, Merkle depth 10 (1024 leaves)
-component main {public [merkleRoot, sellerCommitment, threshold, purchaseCount]} = LoyaltyVerify(8, 10);
+component main {public [merkleRoot, scopeCommitment, threshold, purchaseCount, minTimestamp]} = AgoraVerify(8, 10);

@@ -1,64 +1,86 @@
 import { buildPoseidon, type Poseidon } from "circomlibjs";
 import * as snarkjs from "snarkjs";
 import path from "path";
-import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
-import type { MerchantReceipt, LoyaltyProofResult } from "./types.js";
+import type { SpendReceipt, LoyaltyProofResult } from "./types.js";
 
 const MERKLE_DEPTH = 10;
 const MAX_PURCHASES = 8;
 const TREE_SIZE = 1 << MERKLE_DEPTH;
+const PADDING_SALT_BASE = 2000n;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CIRCUITS_DIR = path.resolve(__dirname, "../circuits/build");
 const WASM_PATH = path.join(CIRCUITS_DIR, "loyalty_verify_js/loyalty_verify.wasm");
 const ZKEY_PATH = path.join(CIRCUITS_DIR, "loyalty_verify_final.zkey");
-const VKEY_PATH = path.join(CIRCUITS_DIR, "verification_key.json");
 
 export class AgoraProver {
   private poseidon!: Poseidon;
-  private F!: any;
+  private F!: ReturnType<Poseidon["F"]>;
+  private zeroLeaf!: bigint;
+  private zeroHashes!: bigint[]; // precomputed zero subtree hashes per level
+  private initialized = false;
 
   async init() {
     this.poseidon = await buildPoseidon();
     this.F = this.poseidon.F;
+    this.initialized = true;
+
+    this.zeroLeaf = this.hash(0n, 0n, 0n, 0n, 0n);
+
+    // Precompute zero-hash table: zeroHashes[d] = hash of an all-zero subtree at depth d
+    this.zeroHashes = new Array(MERKLE_DEPTH + 1);
+    this.zeroHashes[0] = this.zeroLeaf;
+    for (let d = 1; d <= MERKLE_DEPTH; d++) {
+      this.zeroHashes[d] = this.hash(this.zeroHashes[d - 1], this.zeroHashes[d - 1]);
+    }
+  }
+
+  private assertInit() {
+    if (!this.initialized) throw new Error("AgoraProver.init() must be called before use");
   }
 
   hash(...inputs: bigint[]): bigint {
+    this.assertInit();
     return this.F.toObject(this.poseidon(inputs));
   }
 
   createReceipt(
-    sellerCommitment: bigint,
+    scopeCommitment: bigint,
     amount: bigint,
     buyerCommitment: bigint,
     salt: bigint,
-  ): MerchantReceipt {
-    return { sellerCommitment, amount, buyerCommitment, salt };
+    timestamp: bigint,
+  ): SpendReceipt {
+    return { scopeCommitment, amount, buyerCommitment, salt, timestamp };
   }
 
-  receiptLeaf(r: MerchantReceipt): bigint {
-    return this.hash(r.sellerCommitment, r.amount, r.buyerCommitment, r.salt);
+  receiptLeaf(r: SpendReceipt): bigint {
+    return this.hash(r.scopeCommitment, r.amount, r.buyerCommitment, r.salt, r.timestamp);
   }
 
-  buildMerkleTree(receipts: MerchantReceipt[]): {
-    root: bigint;
-    layers: bigint[][];
-  } {
-    const zeroLeaf = this.hash(0n, 0n, 0n, 0n);
-    const leaves: bigint[] = new Array(TREE_SIZE).fill(zeroLeaf);
-
-    for (let i = 0; i < receipts.length; i++) {
-      leaves[i] = this.receiptLeaf(receipts[i]);
-    }
-
+  /**
+   * Build Merkle tree with zero-hash optimization.
+   * Skips Poseidon calls for subtrees that are entirely zero leaves.
+   */
+  private buildTree(leaves: bigint[]): { root: bigint; layers: bigint[][] } {
     const layers: bigint[][] = [leaves];
     let current = leaves;
+
     for (let d = 0; d < MERKLE_DEPTH; d++) {
       const next: bigint[] = [];
+      const zeroAtThisLevel = this.zeroHashes[d];
+      const zeroParent = this.zeroHashes[d + 1];
+
       for (let i = 0; i < current.length; i += 2) {
-        next.push(this.hash(current[i], current[i + 1]));
+        // If both children are the known zero-hash for this level, use precomputed parent
+        if (current[i] === zeroAtThisLevel && current[i + 1] === zeroAtThisLevel) {
+          next.push(zeroParent);
+        } else {
+          next.push(this.hash(current[i], current[i + 1]));
+        }
       }
+
       layers.push(next);
       current = next;
     }
@@ -66,7 +88,7 @@ export class AgoraProver {
     return { root: layers[MERKLE_DEPTH][0], layers };
   }
 
-  getMerkleProof(
+  private getMerkleProof(
     layers: bigint[][],
     leafIndex: number,
   ): { pathElements: string[]; pathIndices: string[] } {
@@ -84,71 +106,67 @@ export class AgoraProver {
     return { pathElements, pathIndices };
   }
 
-  async proveLoyalty(params: {
-    receipts: MerchantReceipt[];
+  /**
+   * Generate a ZK spend proof.
+   *
+   * @param receipts     Purchase receipts to prove (max 8)
+   * @param buyerSecret  Buyer's private key for commitment + nullifier
+   * @param scopeCommitment  Poseidon(sellerId) for loyalty, Poseidon(categoryId) for LTV
+   * @param threshold    Minimum spend to prove
+   * @param minTimestamp 0 for all-time, unix seconds for time-bounded
+   */
+  async proveSpend(params: {
+    receipts: SpendReceipt[];
     buyerSecret: bigint;
-    sellerCommitment: bigint;
+    scopeCommitment: bigint;
     threshold: bigint;
+    minTimestamp?: bigint;
   }): Promise<LoyaltyProofResult> {
-    const { receipts, buyerSecret, sellerCommitment, threshold } = params;
+    const { receipts, buyerSecret, scopeCommitment, threshold, minTimestamp = 0n } = params;
 
     if (receipts.length > MAX_PURCHASES)
       throw new Error(`Max ${MAX_PURCHASES} purchases per proof`);
 
     const buyerCommitment = this.hash(buyerSecret);
 
-    // Build tree with real receipts + padding
-    const allReceipts: MerchantReceipt[] = [...receipts];
+    // Build all receipts: real + zero-amount padding at tree end
+    const allReceipts: SpendReceipt[] = [...receipts];
     for (let i = receipts.length; i < MAX_PURCHASES; i++) {
-      const paddingIdx = TREE_SIZE - 1 - (i - receipts.length);
       allReceipts.push({
-        sellerCommitment,
+        scopeCommitment,
         amount: 0n,
         buyerCommitment,
-        salt: BigInt(2000 + i),
+        salt: PADDING_SALT_BASE + BigInt(i),
+        timestamp: 0n,
       });
     }
 
-    // Place real receipts at indices 0..n-1, padding at end of tree
-    const zeroLeaf = this.hash(0n, 0n, 0n, 0n);
-    const leaves: bigint[] = new Array(TREE_SIZE).fill(zeroLeaf);
+    // Place leaves: real at 0..n-1, padding at tree end
+    const leaves: bigint[] = new Array(TREE_SIZE).fill(this.zeroLeaf);
     for (let i = 0; i < receipts.length; i++) {
       leaves[i] = this.receiptLeaf(receipts[i]);
     }
     for (let i = receipts.length; i < MAX_PURCHASES; i++) {
-      const paddingIdx = TREE_SIZE - 1 - (i - receipts.length);
-      leaves[paddingIdx] = this.receiptLeaf(allReceipts[i]);
+      leaves[TREE_SIZE - 1 - (i - receipts.length)] = this.receiptLeaf(allReceipts[i]);
     }
 
-    // Build full tree
-    const layers: bigint[][] = [leaves];
-    let current = leaves;
-    for (let d = 0; d < MERKLE_DEPTH; d++) {
-      const next: bigint[] = [];
-      for (let i = 0; i < current.length; i += 2) {
-        next.push(this.hash(current[i], current[i + 1]));
-      }
-      layers.push(next);
-      current = next;
-    }
-    const merkleRoot = layers[MERKLE_DEPTH][0];
+    const { root: merkleRoot, layers } = this.buildTree(leaves);
 
     // Build witness
     const purchaseAmounts: string[] = [];
     const purchaseSalts: string[] = [];
+    const purchaseTimestamps: string[] = [];
     const merklePaths: string[][] = [];
     const merkleIndices: string[][] = [];
 
     for (let i = 0; i < MAX_PURCHASES; i++) {
       purchaseAmounts.push(allReceipts[i].amount.toString());
       purchaseSalts.push(allReceipts[i].salt.toString());
+      purchaseTimestamps.push(allReceipts[i].timestamp.toString());
 
-      let leafIdx: number;
-      if (i < receipts.length) {
-        leafIdx = i;
-      } else {
-        leafIdx = TREE_SIZE - 1 - (i - receipts.length);
-      }
+      const leafIdx = i < receipts.length
+        ? i
+        : TREE_SIZE - 1 - (i - receipts.length);
 
       const proof = this.getMerkleProof(layers, leafIdx);
       merklePaths.push(proof.pathElements);
@@ -158,23 +176,22 @@ export class AgoraProver {
     const witness = {
       purchaseAmounts,
       purchaseSalts,
+      purchaseTimestamps,
       merklePaths,
       merkleIndices,
       buyerSecret: buyerSecret.toString(),
       merkleRoot: merkleRoot.toString(),
-      sellerCommitment: sellerCommitment.toString(),
+      scopeCommitment: scopeCommitment.toString(),
       threshold: threshold.toString(),
       purchaseCount: receipts.length.toString(),
+      minTimestamp: minTimestamp.toString(),
     };
 
-    // Generate proof
     const { proof, publicSignals } = await snarkjs.groth16.fullProve(
       witness,
       WASM_PATH,
       ZKEY_PATH,
     );
-
-    const nullifier = BigInt(publicSignals[0]);
 
     return {
       proof: {
@@ -186,13 +203,13 @@ export class AgoraProver {
         pi_c: [proof.pi_c[0], proof.pi_c[1]],
       },
       publicSignals,
-      nullifier,
+      nullifier: BigInt(publicSignals[0]),
     };
   }
 
   /**
-   * Format proof for Solidity verifyProof call.
-   * Swaps B-point coordinates: snarkjs JSON is [real, imag] but EVM expects [imag, real].
+   * Swaps B-point coordinates for EVM: snarkjs stores [real, imag],
+   * the BN128 pairing precompile expects [imag, real].
    */
   formatForSolidity(result: LoyaltyProofResult) {
     const { proof, publicSignals } = result;
@@ -203,29 +220,7 @@ export class AgoraProver {
         [BigInt(proof.pi_b[1][1]), BigInt(proof.pi_b[1][0])],
       ] as const,
       c: [BigInt(proof.pi_c[0]), BigInt(proof.pi_c[1])] as const,
-      pubSignals: publicSignals.map(BigInt) as [
-        bigint,
-        bigint,
-        bigint,
-        bigint,
-        bigint,
-        bigint,
-      ],
+      pubSignals: publicSignals.map(BigInt) as [bigint, bigint, bigint, bigint, bigint, bigint],
     };
-  }
-
-  async verifyLocally(result: LoyaltyProofResult): Promise<boolean> {
-    const vkey = JSON.parse(readFileSync(VKEY_PATH, "utf-8"));
-    return snarkjs.groth16.verify(
-      vkey,
-      result.publicSignals,
-      {
-        pi_a: [...result.proof.pi_a, "1"],
-        pi_b: [...result.proof.pi_b.map((p) => [...p]), ["1", "0"]],
-        pi_c: [...result.proof.pi_c, "1"],
-        protocol: "groth16",
-        curve: "bn128",
-      },
-    );
   }
 }

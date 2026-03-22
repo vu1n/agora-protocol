@@ -10,6 +10,10 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@noble/curves": "^2.0.1",
+    "@railgun-community/engine": "^9.5.3",
+    "@railgun-community/shared-models": "^8.0.1",
+    "@railgun-community/wallet": "^10.8.4",
     "circomlibjs": "^0.1.7",
     "snarkjs": "^0.7.6",
     "viem": "^2.47.6"
