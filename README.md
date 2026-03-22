@@ -47,9 +47,9 @@ Buyer Agent                                                    Merchant Agent
 
 | Component | Location |
 |-----------|----------|
-| **LoyaltyVerifier** | Arbitrum [`0xF1Ea...7874`](https://arbiscan.io/address/0xF1Ea8695FEbfc104F095c093474ddC466EB67874) |
-| **MerchantRegistry** | Arbitrum [`0xE876...0583`](https://arbiscan.io/address/0xE876EeC58E79Db135d9E5Fd93E91aBf54eA4f583) |
-| **LoyaltyManager** | Arbitrum [`0xf66F...B353`](https://arbiscan.io/address/0xf66FB40f0ABD88Aa31dD88a2EfE65059143dB353) |
+| **LoyaltyVerifier** | Arbitrum [`0x291F...972f`](https://arbiscan.io/address/0x291F3fD0608cA03E3D69646F56815F90Cd1D972f) |
+| **MerchantRegistry** | Arbitrum [`0xe3a7...35f4`](https://arbiscan.io/address/0xe3a75FDE44c193F3B4bDA7BBbac4c0F887a527b5) |
+| **LoyaltyManager** | Arbitrum [`0x870F...35f4`](https://arbiscan.io/address/0x870F2B59204D50868D9f88C331F95F9E466135f4) |
 | **Agent Identity** | Base ERC-8004 #35295 |
 | **Source** | [github.com/vu1n/agora-protocol](https://github.com/vu1n/agora-protocol) |
 

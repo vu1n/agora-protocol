@@ -26,7 +26,7 @@ Call `registerMerchant` on the MerchantRegistry contract:
 
 ```bash
 # Using cast (foundry)
-cast send 0xE876EeC58E79Db135d9E5Fd93E91aBf54eA4f583 \
+cast send 0xe3a75FDE44c193F3B4bDA7BBbac4c0F887a527b5 \
   "registerMerchant(bytes32,string)" \
   0x<your-agent-id> \
   "Your Shop Name" \
@@ -164,7 +164,7 @@ After issuing receipts, build a Merkle tree of all receipt leaves and publish th
 
 ```bash
 # Update the purchase root on MerchantRegistry
-cast send 0xE876EeC58E79Db135d9E5Fd93E91aBf54eA4f583 \
+cast send 0xe3a75FDE44c193F3B4bDA7BBbac4c0F887a527b5 \
   "updatePurchaseRoot(bytes32,bytes32)" \
   0x<your-agent-id> \
   0x<new-merkle-root> \
@@ -180,7 +180,7 @@ When a buyer includes a loyalty proof in their payment, the on-chain `LoyaltyVer
 
 ```bash
 # Read verification result from LoyaltyManager
-cast call 0xf66FB40f0ABD88Aa31dD88a2EfE65059143dB353 \
+cast call 0x870F2B59204D50868D9f88C331F95F9E466135f4 \
   "verifySpendProof(uint256[2],uint256[2][2],uint256[2],uint256[6],bytes32)" \
   "[a0,a1]" "[[b00,b01],[b10,b11]]" "[c0,c1]" "[s0,s1,s2,s3,s4,s5]" 0x<scope-id> \
   --rpc-url https://arb1.arbitrum.io/rpc
@@ -206,9 +206,9 @@ Match against your inventory. Send deal offers to the buyer's `respondTo` stealt
 ## Contract Addresses (Arbitrum)
 
 ```
-LoyaltyVerifier:  0xF1Ea8695FEbfc104F095c093474ddC466EB67874
-MerchantRegistry: 0xE876EeC58E79Db135d9E5Fd93E91aBf54eA4f583
-LoyaltyManager:   0xf66FB40f0ABD88Aa31dD88a2EfE65059143dB353
+LoyaltyVerifier:  0x291F3fD0608cA03E3D69646F56815F90Cd1D972f
+MerchantRegistry: 0xe3a75FDE44c193F3B4bDA7BBbac4c0F887a527b5
+LoyaltyManager:   0x870F2B59204D50868D9f88C331F95F9E466135f4
 ```
 
 ## Architecture

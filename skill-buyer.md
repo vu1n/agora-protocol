@@ -49,9 +49,9 @@ const config = {
   rpcUrl: "https://arb1.arbitrum.io/rpc",
   chainId: 42161,
   contracts: {
-    verifier: "0xF1Ea8695FEbfc104F095c093474ddC466EB67874",
-    registry: "0xE876EeC58E79Db135d9E5Fd93E91aBf54eA4f583",
-    manager: "0xf66FB40f0ABD88Aa31dD88a2EfE65059143dB353",
+    verifier: "0x291F3fD0608cA03E3D69646F56815F90Cd1D972f",
+    registry: "0xe3a75FDE44c193F3B4bDA7BBbac4c0F887a527b5",
+    manager: "0x870F2B59204D50868D9f88C331F95F9E466135f4",
   },
 };
 
@@ -262,9 +262,9 @@ After the transaction, abandon the stealth identity. The merchant never learns y
 ## Contract Addresses (Arbitrum)
 
 ```
-LoyaltyVerifier:  0xF1Ea8695FEbfc104F095c093474ddC466EB67874
-MerchantRegistry: 0xE876EeC58E79Db135d9E5Fd93E91aBf54eA4f583
-LoyaltyManager:   0xf66FB40f0ABD88Aa31dD88a2EfE65059143dB353
+LoyaltyVerifier:  0x291F3fD0608cA03E3D69646F56815F90Cd1D972f
+MerchantRegistry: 0xe3a75FDE44c193F3B4bDA7BBbac4c0F887a527b5
+LoyaltyManager:   0x870F2B59204D50868D9f88C331F95F9E466135f4
 ```
 
 ## Architecture
