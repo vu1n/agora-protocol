@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@noble/curves": "^2.0.1",
+    "@phala/dstack-sdk": "^0.5.7",
     "@railgun-community/engine": "^9.5.3",
     "@railgun-community/shared-models": "^8.0.1",
     "@railgun-community/wallet": "^10.8.4",

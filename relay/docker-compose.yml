@@ -1,0 +1,11 @@
+services:
+  agora-relay:
+    image: ghcr.io/vu1n/agora-relay:latest
+    ports:
+      - "3100:3100"
+    environment:
+      - PORT=3100
+      - ARBITRUM_RPC=${ARBITRUM_RPC:-https://arb1.arbitrum.io/rpc}
+      - LOYALTY_MANAGER_ADDRESS=0xf66FB40f0ABD88Aa31dD88a2EfE65059143dB353
+      - GIT_COMMIT=${GIT_COMMIT:-dev}
+    restart: unless-stopped
