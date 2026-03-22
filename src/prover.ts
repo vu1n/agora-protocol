@@ -2,7 +2,7 @@ import { buildPoseidon, type Poseidon } from "circomlibjs";
 import * as snarkjs from "snarkjs";
 import path from "path";
 import { fileURLToPath } from "url";
-import type { SpendReceipt, LoyaltyProofResult } from "./types.js";
+import type { SpendReceipt, LoyaltyProofResult, MerchantEdDSAKey } from "./types.js";
 
 const MERKLE_DEPTH = 10;
 const MAX_PURCHASES = 8;
@@ -51,8 +51,9 @@ export class AgoraProver {
     buyerCommitment: bigint,
     salt: bigint,
     timestamp: bigint,
+    sig: { S: string; R8x: string; R8y: string },
   ): SpendReceipt {
-    return { scopeCommitment, amount, buyerCommitment, salt, timestamp };
+    return { scopeCommitment, amount, buyerCommitment, salt, timestamp, sig };
   }
 
   receiptLeaf(r: SpendReceipt): bigint {
@@ -121,8 +122,9 @@ export class AgoraProver {
     scopeCommitment: bigint;
     threshold: bigint;
     minTimestamp?: bigint;
+    merchantKey: MerchantEdDSAKey;
   }): Promise<LoyaltyProofResult> {
-    const { receipts, buyerSecret, scopeCommitment, threshold, minTimestamp = 0n } = params;
+    const { receipts, buyerSecret, scopeCommitment, threshold, minTimestamp = 0n, merchantKey } = params;
 
     if (receipts.length > MAX_PURCHASES)
       throw new Error(`Max ${MAX_PURCHASES} purchases per proof`);
@@ -138,6 +140,7 @@ export class AgoraProver {
         buyerCommitment,
         salt: PADDING_SALT_BASE + BigInt(i),
         timestamp: 0n,
+        sig: { S: "0", R8x: "0", R8y: "0" }, // padding — EdDSA disabled via enabled=0
       });
     }
 
@@ -158,11 +161,17 @@ export class AgoraProver {
     const purchaseTimestamps: string[] = [];
     const merklePaths: string[][] = [];
     const merkleIndices: string[][] = [];
+    const sigS: string[] = [];
+    const sigR8x: string[] = [];
+    const sigR8y: string[] = [];
 
     for (let i = 0; i < MAX_PURCHASES; i++) {
       purchaseAmounts.push(allReceipts[i].amount.toString());
       purchaseSalts.push(allReceipts[i].salt.toString());
       purchaseTimestamps.push(allReceipts[i].timestamp.toString());
+      sigS.push(allReceipts[i].sig.S);
+      sigR8x.push(allReceipts[i].sig.R8x);
+      sigR8y.push(allReceipts[i].sig.R8y);
 
       const leafIdx = i < receipts.length
         ? i
@@ -180,11 +189,16 @@ export class AgoraProver {
       merklePaths,
       merkleIndices,
       buyerSecret: buyerSecret.toString(),
+      sigS,
+      sigR8x,
+      sigR8y,
       merkleRoot: merkleRoot.toString(),
       scopeCommitment: scopeCommitment.toString(),
       threshold: threshold.toString(),
       purchaseCount: receipts.length.toString(),
       minTimestamp: minTimestamp.toString(),
+      merchantPubKeyAx: merchantKey.Ax,
+      merchantPubKeyAy: merchantKey.Ay,
     };
 
     const { proof, publicSignals } = await snarkjs.groth16.fullProve(

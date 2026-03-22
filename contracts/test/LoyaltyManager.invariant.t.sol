@@ -30,7 +30,7 @@ contract LoyaltyInvariantHandler is Test {
 
     function registerMerchant(bytes32 agentId, string calldata name) external {
         if (registry.isRegistered(agentId)) return;
-        registry.registerMerchant(agentId, name);
+        registry.registerMerchant(agentId, name, 0, 0);
         registeredAgents.push(agentId);
     }
 

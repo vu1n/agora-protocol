@@ -10,6 +10,18 @@ export interface SpendReceipt {
   buyerCommitment: bigint;
   salt: bigint;
   timestamp: bigint;        // unix seconds
+  /** EdDSA signature over the leaf hash (Baby Jubjub / Poseidon) */
+  sig: {
+    S: string;
+    R8x: string;
+    R8y: string;
+  };
+}
+
+/** Merchant's EdDSA public key (Baby Jubjub point) */
+export interface MerchantEdDSAKey {
+  Ax: string;
+  Ay: string;
 }
 
 export interface LoyaltyProofResult {

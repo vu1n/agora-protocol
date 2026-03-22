@@ -51,7 +51,7 @@ contract LoyaltyManagerTest is Test {
         manager = new LoyaltyManager(address(verifier), address(registry));
 
         vm.prank(merchant);
-        registry.registerMerchant(agentId, "Test Merchant");
+        registry.registerMerchant(agentId, "Test Merchant", pubSignals[6], pubSignals[7]);
 
         vm.prank(merchant);
         registry.updatePurchaseRoot(agentId, bytes32(pubSignals[1]));

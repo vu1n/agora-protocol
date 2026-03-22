@@ -22,7 +22,7 @@ contract LoyaltyManagerSymbolic is Test {
         manager = new LoyaltyManager(address(verifier), address(registry));
 
         vm.prank(merchant);
-        registry.registerMerchant(agentId, "Test");
+        registry.registerMerchant(agentId, "Test", 0, 0);
     }
 
     /// @notice A nullifier can never be used twice.

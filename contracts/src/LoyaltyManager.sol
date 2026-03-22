@@ -46,6 +46,7 @@ contract LoyaltyManager {
     error NullifierAlreadyUsed();
     error ScopeHasNoRoot();
     error RootMismatch();
+    error EdDSAKeyMismatch();
 
     constructor(address _verifier, address _registry) {
         verifier = IGroth16Verifier(_verifier);
@@ -68,6 +69,10 @@ contract LoyaltyManager {
         bytes32 registryRoot = registry.getPurchaseRoot(scopeId);
         if (registryRoot == bytes32(0)) revert ScopeHasNoRoot();
         if (uint256(registryRoot) != proofRoot) revert RootMismatch();
+
+        // Cross-check EdDSA public key against registry
+        (uint256 regAx, uint256 regAy) = registry.getEdDSAKey(scopeId);
+        if (pubSignals[6] != regAx || pubSignals[7] != regAy) revert EdDSAKeyMismatch();
 
         // Check nullifier not used
         if (usedNullifiers[nullifier]) revert NullifierAlreadyUsed();
