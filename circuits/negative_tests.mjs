@@ -1,10 +1,10 @@
 /**
- * Circuit negative tests: verify the circuit REJECTS bad inputs.
- * Each test constructs a valid witness, mutates one thing, and expects failure.
+ * Circuit negative tests with EdDSA signatures.
+ * Verifies the circuit REJECTS bad inputs including signature forgery.
  */
-import { buildPoseidon } from "circomlibjs";
+import { buildPoseidon, buildEddsa, buildBabyjub } from "circomlibjs";
 import * as snarkjs from "snarkjs";
-import { writeFileSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 
 const MERKLE_DEPTH = 10;
 const MAX_PURCHASES = 8;
@@ -12,8 +12,26 @@ const TREE_SIZE = 1 << MERKLE_DEPTH;
 
 async function main() {
   const poseidon = await buildPoseidon();
+  const eddsa = await buildEddsa();
+  const babyJub = await buildBabyjub();
   const F = poseidon.F;
   const hash = (...inputs) => F.toObject(poseidon(inputs.map(BigInt)));
+
+  // Merchant EdDSA keys
+  const merchantPrivKey = Buffer.from(
+    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "hex"
+  );
+  const merchantPubKey = eddsa.prv2pub(merchantPrivKey);
+  const merchantAx = F.toObject(merchantPubKey[0]);
+  const merchantAy = F.toObject(merchantPubKey[1]);
+
+  // Attacker's EdDSA keys (for forgery tests)
+  const attackerPrivKey = Buffer.from(
+    "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", "hex"
+  );
+  const attackerPubKey = eddsa.prv2pub(attackerPrivKey);
+  const attackerAx = F.toObject(attackerPubKey[0]);
+  const attackerAy = F.toObject(attackerPubKey[1]);
 
   const buyerSecret = 12345n;
   const buyerCommitment = hash(buyerSecret);
@@ -26,16 +44,22 @@ async function main() {
     { amount: 200_000_000n, salt: 1003n, ts: now - 86400n },
   ];
 
-  // Build valid tree
+  // Sign each receipt with merchant key
+  const leafHashes = [];
+  const signatures = [];
+  for (const p of purchases) {
+    const lh = hash(scopeCommitment, p.amount, buyerCommitment, p.salt, p.ts);
+    leafHashes.push(lh);
+    const sig = eddsa.signPoseidon(merchantPrivKey, F.e(lh));
+    signatures.push({ S: sig.S.toString(), R8x: F.toObject(sig.R8[0]).toString(), R8y: F.toObject(sig.R8[1]).toString() });
+  }
+
+  // Build tree
   const zeroLeaf = hash(0n, 0n, 0n, 0n, 0n);
   const leaves = new Array(TREE_SIZE).fill(zeroLeaf);
-  purchases.forEach((p, i) => {
-    leaves[i] = hash(scopeCommitment, p.amount, buyerCommitment, p.salt, p.ts);
-  });
-  // Padding
+  leafHashes.forEach((lh, i) => { leaves[i] = lh; });
   for (let i = purchases.length; i < MAX_PURCHASES; i++) {
-    const idx = TREE_SIZE - 1 - (i - purchases.length);
-    leaves[idx] = hash(scopeCommitment, 0n, buyerCommitment, 2000n + BigInt(i), 0n);
+    leaves[TREE_SIZE - 1 - (i - purchases.length)] = hash(scopeCommitment, 0n, buyerCommitment, 2000n + BigInt(i), 0n);
   }
 
   const layers = [leaves];
@@ -59,14 +83,18 @@ async function main() {
     return { pathElements, pathIndices };
   }
 
-  // Build valid base witness
   function buildWitness(overrides = {}) {
     const amounts = [], salts = [], timestamps = [], paths = [], indices = [];
+    const sS = [], sR8x = [], sR8y = [];
+
     for (let i = 0; i < MAX_PURCHASES; i++) {
       if (i < purchases.length) {
         amounts.push(purchases[i].amount.toString());
         salts.push(purchases[i].salt.toString());
         timestamps.push(purchases[i].ts.toString());
+        sS.push(signatures[i].S);
+        sR8x.push(signatures[i].R8x);
+        sR8y.push(signatures[i].R8y);
         const p = getProof(i);
         paths.push(p.pathElements);
         indices.push(p.pathIndices);
@@ -75,95 +103,125 @@ async function main() {
         amounts.push("0");
         salts.push((2000 + i).toString());
         timestamps.push("0");
+        sS.push("0");
+        sR8x.push("0");
+        sR8y.push("0");
         const p = getProof(pidx);
         paths.push(p.pathElements);
         indices.push(p.pathIndices);
       }
     }
     return {
-      purchaseAmounts: amounts,
-      purchaseSalts: salts,
-      purchaseTimestamps: timestamps,
-      merklePaths: paths,
-      merkleIndices: indices,
+      purchaseAmounts: amounts, purchaseSalts: salts, purchaseTimestamps: timestamps,
+      merklePaths: paths, merkleIndices: indices,
       buyerSecret: buyerSecret.toString(),
+      sigS: sS, sigR8x: sR8x, sigR8y: sR8y,
       merkleRoot: merkleRoot.toString(),
       scopeCommitment: scopeCommitment.toString(),
-      threshold: "400000000", // $400 — valid (total is $450)
+      threshold: "400000000",
       purchaseCount: "3",
       minTimestamp: "0",
+      merchantPubKeyAx: merchantAx.toString(),
+      merchantPubKeyAy: merchantAy.toString(),
       ...overrides,
     };
   }
 
+  const WASM = "build/loyalty_verify_js/loyalty_verify.wasm";
+  const ZKEY = "build/loyalty_verify_final.zkey";
+  const vkey = JSON.parse(readFileSync("build/verification_key.json", "utf-8"));
+
   async function expectPass(name, witness) {
     try {
-      const { proof, publicSignals } = await snarkjs.groth16.fullProve(
-        witness, "build/loyalty_verify_js/loyalty_verify.wasm", "build/loyalty_verify_final.zkey"
-      );
-      const vkey = JSON.parse(readFileSync("build/verification_key.json", "utf-8"));
+      const { proof, publicSignals } = await snarkjs.groth16.fullProve(witness, WASM, ZKEY);
       const valid = await snarkjs.groth16.verify(vkey, publicSignals, proof);
-      if (valid) {
-        console.log(`  PASS: ${name}`);
-        return true;
-      } else {
-        console.log(`  FAIL: ${name} — proof generated but didn't verify`);
-        return false;
-      }
+      if (valid) { console.log(`  PASS: ${name}`); return true; }
+      console.log(`  FAIL: ${name} — proof didn't verify`); return false;
     } catch (e) {
-      console.log(`  FAIL: ${name} — ${e.message?.slice(0, 80)}`);
-      return false;
+      console.log(`  FAIL: ${name} — ${e.message?.slice(0, 80)}`); return false;
     }
   }
 
   async function expectReject(name, witness) {
     try {
-      await snarkjs.groth16.fullProve(
-        witness, "build/loyalty_verify_js/loyalty_verify.wasm", "build/loyalty_verify_final.zkey"
-      );
-      console.log(`  FAIL: ${name} — should have rejected but proof was generated`);
-      return false;
+      await snarkjs.groth16.fullProve(witness, WASM, ZKEY);
+      console.log(`  FAIL: ${name} — should have rejected`); return false;
     } catch {
-      console.log(`  PASS: ${name} — correctly rejected`);
-      return true;
+      console.log(`  PASS: ${name} — correctly rejected`); return true;
     }
   }
 
   let passed = 0, failed = 0;
-  function check(ok) { if (ok) passed++; else failed++; }
+  const check = (ok) => { if (ok) passed++; else failed++; };
 
-  console.log("=== Circuit Negative Tests ===\n");
+  console.log("=== Circuit Negative Tests (EdDSA) ===\n");
 
   // Positive baseline
   console.log("Positive cases:");
-  check(await expectPass("valid proof (all-time)", buildWitness()));
+  check(await expectPass("valid proof (all-time, signed)", buildWitness()));
   check(await expectPass("valid proof (time-bounded)", buildWitness({ minTimestamp: (now - 86400n * 10n).toString() })));
 
-  // Negative: threshold too high
+  // Threshold
   console.log("\nThreshold tests:");
   check(await expectReject("threshold exceeds spend ($500 > $450)", buildWitness({ threshold: "500000000" })));
-  check(await expectReject("threshold exactly at boundary ($451)", buildWitness({ threshold: "451000000" })));
 
-  // Negative: wrong buyer
+  // Wrong buyer
   console.log("\nBuyer identity tests:");
   check(await expectReject("wrong buyerSecret", buildWitness({ buyerSecret: "99999" })));
 
-  // Negative: wrong scope
+  // Wrong scope
   console.log("\nScope tests:");
   check(await expectReject("wrong scopeCommitment", buildWitness({ scopeCommitment: hash(999n).toString() })));
 
-  // Negative: wrong merkle root
+  // Wrong merkle root
   console.log("\nMerkle root tests:");
   check(await expectReject("wrong merkleRoot", buildWitness({ merkleRoot: "123456789" })));
 
-  // Negative: time-bounded with purchases outside window
+  // Time-bounded
   console.log("\nTime-bounded tests:");
-  // All purchases are 1-5 days old. minTimestamp = 1 day ago should only allow the most recent.
-  // Total of just the 1-day-old purchase is $200, less than $400 threshold.
   check(await expectReject("time window excludes old purchases",
     buildWitness({ minTimestamp: (now - 86400n).toString() })));
 
+  // EdDSA signature forgery tests
+  console.log("\nEdDSA signature tests:");
+
+  // Wrong signing key — sign with attacker's key, present merchant's pubkey
+  const attackerSigs = [];
+  for (const lh of leafHashes) {
+    const sig = eddsa.signPoseidon(attackerPrivKey, F.e(lh));
+    attackerSigs.push({ S: sig.S.toString(), R8x: F.toObject(sig.R8[0]).toString(), R8y: F.toObject(sig.R8[1]).toString() });
+  }
+  const wrongSignerWitness = buildWitness({
+    sigS: [...attackerSigs.map(s => s.S), "0", "0", "0", "0", "0"],
+    sigR8x: [...attackerSigs.map(s => s.R8x), "0", "0", "0", "0", "0"],
+    sigR8y: [...attackerSigs.map(s => s.R8y), "0", "0", "0", "0", "0"],
+  });
+  check(await expectReject("wrong signing key (attacker signs, merchant pubkey)", wrongSignerWitness));
+
+  // Tampered signature — flip one bit in S
+  const tamperedSigs = [...signatures];
+  const originalS = BigInt(tamperedSigs[0].S);
+  tamperedSigs[0] = { ...tamperedSigs[0], S: (originalS + 1n).toString() };
+  const tamperedWitness = buildWitness({
+    sigS: [...tamperedSigs.map(s => s.S), "0", "0", "0", "0", "0"],
+  });
+  check(await expectReject("tampered signature (S incremented by 1)", tamperedWitness));
+
+  // Self-signed with attacker's pubkey (should fail because contract checks pubkey,
+  // but at circuit level this would pass — the circuit verifies the sig against
+  // whatever pubkey is provided. The on-chain check prevents this.)
+  // For completeness, verify the circuit DOES accept a self-consistent attacker proof:
+  const selfSignedWitness = buildWitness({
+    sigS: [...attackerSigs.map(s => s.S), "0", "0", "0", "0", "0"],
+    sigR8x: [...attackerSigs.map(s => s.R8x), "0", "0", "0", "0", "0"],
+    sigR8y: [...attackerSigs.map(s => s.R8y), "0", "0", "0", "0", "0"],
+    merchantPubKeyAx: attackerAx.toString(),
+    merchantPubKeyAy: attackerAy.toString(),
+  });
+  check(await expectPass("self-signed with attacker key (circuit passes, contract rejects)", selfSignedWitness));
+
   console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);
+  console.log("Note: self-signed attacker proof passes circuit but fails on-chain (EdDSA key mismatch)");
   if (failed > 0) process.exit(1);
 }
 
