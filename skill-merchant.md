@@ -135,28 +135,45 @@ You can scan announcements via any Arbitrum RPC endpoint by monitoring the steal
 
 ## Issuing Receipts
 
-After detecting a payment, issue a receipt to the buyer so they can build loyalty proofs later.
+After detecting a payment, sign the receipt with your EdDSA key and store it. The buyer pulls it when they need to prove loyalty.
 
 A receipt contains:
 - **scopeCommitment**: hash of your merchant/category identifier
 - **amount**: the payment amount
-- **buyerCommitment**: derived from the stealth address (no identity revealed)
+- **buyerCommitment**: derived from the buyer's secret (no identity revealed)
 - **salt**: random value you generate
 - **timestamp**: when the payment was detected
+- **sig**: your EdDSA signature (S, R8x, R8y) over the receipt leaf hash
 
-Send the receipt to the buyer off-chain (e.g., via the stealth address announcement channel or an encrypted message to the buyer's ephemeral identity). The buyer stores it locally and uses it as input to future ZK proofs.
+### Receipt Endpoint
 
-Example receipt JSON:
+Add an `agora-receipts` service to your 8004 agent card:
 
 ```json
 {
-  "scopeCommitment": "0x...",
-  "amount": "5000000",
-  "buyerCommitment": "0x...",
-  "salt": "0x...",
-  "timestamp": 1711152000
+  "services": [
+    { "type": "agora-deals", "endpoint": "https://your-shop.example/deals.json" },
+    { "type": "agora-receipts", "endpoint": "https://your-shop.example/receipts" },
+    { "type": "agora-skill", "endpoint": "...skill-buyer.md" }
+  ]
 }
 ```
+
+When a buyer queries `GET /receipts/{ephemeralPubKey}`, return the receipt encrypted to that buyer's ephemeral key:
+
+```
+Encryption:
+  sharedSecret = ECDH(merchantViewingPrivKey, ephemeralPubKey)
+  encryptionKey = keccak256(sharedSecret)
+  encryptedReceipt = AES-GCM(encryptionKey, receiptJSON)
+
+Response:
+  { "encrypted": "0x...", "nonce": "0x..." }
+```
+
+Only the buyer who generated that ephemeral key can decrypt (they have the ephemeral private key). An observer sees opaque bytes. This uses the same ECDH from the stealth address derivation — no new cryptography.
+
+The buyer pulls receipts when they need them — not at payment time. Your contract with the buyer: **serve the encrypted receipt whenever they ask.**
 
 ## Updating Your Merkle Root
 

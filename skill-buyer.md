@@ -139,11 +139,25 @@ Response:
 
 Use the `stealthMetaAddress` from the deal as `merchantMeta` in your `planAgoraRecipe()` call. If the deal has a `discountBps` and you qualify, include your `loyaltyProof`.
 
-## Storing Receipts
+## Pulling Receipts
 
-After payment, the merchant issues a receipt off-chain. Store it locally in your agent. Receipts are the raw material for ZK loyalty proofs. They never leave your agent.
+After payment, the merchant stores your EdDSA-signed receipt. Pull it whenever you need it for a loyalty proof.
 
-A receipt contains: scope commitment, amount, buyer commitment, salt, and timestamp.
+The merchant's 8004 agent card has an `agora-receipts` service. Query it with the ephemeral public key you used for the payment:
+
+```bash
+curl https://coffee-shop.example/receipts/0x04abc...
+```
+
+The response is encrypted to your ephemeral key. Decrypt it:
+
+```
+sharedSecret = ECDH(ephemeralPrivKey, merchantViewingPubKey)
+key = keccak256(sharedSecret)
+receipt = AES-GCM-decrypt(key, response.encrypted, response.nonce)
+```
+
+Store the decrypted receipt locally. Receipts are the raw material for ZK loyalty proofs. They never leave your agent.
 
 ## ZK Loyalty Proofs
 
