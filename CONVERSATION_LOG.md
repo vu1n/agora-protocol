@@ -118,6 +118,44 @@ The Railgun integration is real -- both functions are wired in `executor.ts`. Th
 
 **Decision:** Merchant serves encrypted receipts at `GET /receipts/{ephemeralPubKey}`. Encrypted with XChaCha20-Poly1305 (AEAD via `@noble/ciphers`). Key derived via ECDH with domain separation: `keccak256(shared || "agora-receipt")` — different from the stealth address key to prevent reuse. Tampered ciphertext throws. Wrong key throws. The buyer pulls when they want to prove loyalty, not at payment time. SDK exports `encryptReceipt` and `decryptReceipt` as helpers — the code IS the documentation for agents.
 
+## 15. Stealth Intents: From Design to Mainnet
+
+**Problem:** Anonymous buyer discovery was part of the architecture from the start (decision #5), but the implementation was deferred while the payment and loyalty layers were built first.
+
+**Decision:** Implemented the full pipeline: `createThrowawayIdentity()` generates a stealth keypair and derives a one-time address, `buildIntentRegistration()` constructs an ERC-8004 registration payload with `agora-intent` service type, `discoverIntents()` lets merchants scan for buyer intents, `matchesIntent()` filters by category and price. Also built `createPrivateIntent()` which composes Railgun funding + throwaway identity + intent registration into a single call for fully anonymous buyer discovery.
+
+Ran it live on Arbitrum — created a throwaway identity, derived a stealth address for a merchant, and executed a real USDC transfer. Merchant scanning confirmed payment detection. TX: `0x8670970e2ed36c93c65aa7223c31b1c3133591dd29f93f7df5c6c171bf73569f`.
+
+## 16. Railgun Shield: Pushing Through the SDK Wall
+
+**Problem:** The Railgun integration in `executor.ts` was structurally correct but never tested against the live Railgun engine. We wanted to prove the full privacy path worked end-to-end on mainnet, not just in mocked tests.
+
+**What happened:** Multiple failed attempts before success. The Railgun Wallet SDK has sharp edges:
+
+1. `level` (npm) doesn't satisfy Railgun's `AbstractLevelDOWN` requirement — had to switch to `leveldown`
+2. `loadProvider` requires provider weight >= 2 for fallback quorum — undocumented, silent failure
+3. The POI aggregator URL is `ppoi-agg.horsewithsixlegs.xyz` — found by reading the Railgun quickstart, not guessable
+4. Public RPCs hang indefinitely on `loadProvider`'s batch contract reads — needed a dedicated RPC
+5. Encryption key must be exactly 32 bytes hex with no `0x` prefix
+6. `skipMerkletreeScans` must be false or wallet creation fails
+7. Shield signature: `signMessage("RAILGUN_SHIELD")` returns 65 bytes but Railgun needs 32 — take the first 32
+
+Each issue was a silent hang or a cryptic error. The SDK sanitizes errors so aggressively that `e.cause` is the only way to see the real failure.
+
+**Decision:** Pushed through all seven. Successfully shielded USDC into the Railgun pool on Arbitrum mainnet. TX: `0xf192174bdb6c4fdda512e69710f9a0eb1948ce70056ba17c66b48aef44c6fbfc` (756k gas). Every gotcha is documented in `railgun-helper.ts` so the next developer or agent doesn't hit the same walls.
+
+## 17. Composable LTV: Merchant-Defined Lifetime Value
+
+**Problem:** The circuit takes a single `merkleRoot`, so cross-merchant aggregation ("I spent $500 across all coffee shops") isn't possible in a single proof. But a single aggregate number was never the right design — merchants need to define what LTV means to their business.
+
+**Decision:** Merchants define their own LTV formula by requesting parallel proofs across categories they care about. A coffee shop requests `scopeCommitment=hash("coffee")` + `hash("brunch")` + `hash("breakfast")`, each with independent thresholds and time windows. The merchant composes the results into tiered discounts. No single proof needs to span multiple trees. Each merchant customizes their formula. More powerful than a single aggregate number — and it doesn't require recursive proofs or shared Merkle trees.
+
+## 18. Formal Threat Model
+
+**Problem:** Strong privacy claims need rigorous adversarial analysis. We wanted to document exactly what the system protects against, what it doesn't, and where the boundaries are.
+
+**Decision:** Wrote `THREAT_MODEL.md` covering four adversary classes (malicious buyer, malicious merchant, chain observer, network observer) across four threat categories (receipt spoofing, loyalty proof manipulation, payment spoofing, purchase privacy attacks). Each attack vector maps to a specific defense with code-level references. Residual risks are explicitly flagged: frontrunning proof submission (low severity — attacker gains nothing), receipt endpoint timing correlation, throwaway identity funding linkability. Trust assumptions enumerated with failure consequences. Also implemented EdDSA key rotation in `MerchantRegistry.updateEdDSAKey()` with automatic root invalidation — directly closing the key compromise risk identified during the analysis.
+
 ## Technical Highlights
 
 - **Circuit soundness fixes:** Three bugs caught during plan review — unbound Merkle root, replayable nullifier (buyerSecret not in leaf hash), non-quadratic constraint in MerkleTreeChecker. All fixed before compilation.
@@ -128,4 +166,6 @@ The Railgun integration is real -- both functions are wired in `executor.ts`. Th
 - **Zero-hash tree optimization:** Precomputed zero subtree hashes per level. Skips ~90% of Poseidon calls.
 - **Receipt encryption:** XChaCha20-Poly1305 AEAD with domain-separated ECDH key. Reuses stealth address key exchange.
 - **Proof cache:** Pre-generates proofs in background. 0ms at checkout. Invalidates on new receipts. Deduplicates in-flight generation.
-- **Verification depth:** 33 TypeScript tests, 9 Foundry unit (real EdDSA proofs), 3 invariant fuzz (128k calls), 4 Halmos symbolic, 10 circuit negative (including EdDSA forgery), 20 E2E assertions, 3 demo proofs, 1 Arbitrum mainnet verification.
+- **Receipt server:** Reference Hono implementation with pluggable `ReceiptStore`. Encrypts on GET, not on store. 8 integration tests including adversarial decryption.
+- **Railgun helper:** `initRailgun()` collapses ~30 lines of engine/wallet/provider setup to one call. Documents 7 SDK gotchas discovered during live mainnet testing.
+- **Verification depth:** 63 TypeScript tests, 9 Foundry unit (real EdDSA proofs), 3 invariant fuzz (128k calls), 6 Halmos symbolic, 10 circuit tests (including EdDSA forgery), 20 E2E assertions, 3 on-chain Arbitrum mainnet transactions.
