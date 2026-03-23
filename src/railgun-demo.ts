@@ -42,7 +42,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 const USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as Address;
-const RPC = "https://arb1.arbitrum.io/rpc";
+const RPC = process.env.ARBITRUM_RPC ?? "https://arb1.arbitrum.io/rpc";
 const SHIELD_AMOUNT = 100000n; // $0.10 USDC
 const DATA_DIR = ".railgun-demo";
 
@@ -123,7 +123,7 @@ async function main() {
     artifactStore,
     false,       // useNativeArtifacts (nodejs = false)
     true,        // skipMerkletreeScans — we'll trigger manually after shielding
-    ["https://poi-node.railgun.org"],  // POI aggregator
+    process.env.POI_NODE_URL ? [process.env.POI_NODE_URL] : [],  // POI aggregator (optional via env)
   );
   console.log("Engine started.");
 
@@ -148,7 +148,12 @@ async function main() {
     const fp = createFallbackProviderFromJsonConfig(config);
     console.log("FallbackProvider created:", !!fp);
 
-    const providerResult = await loadProvider(config, NetworkName.Arbitrum, 15000);
+    console.log("Calling loadProvider (may take 30-60s for contract reads)...");
+    const providerPromise = loadProvider(config, NetworkName.Arbitrum, 15000);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("loadProvider timed out after 120s")), 120000),
+    );
+    const providerResult = await Promise.race([providerPromise, timeoutPromise]);
     console.log("Provider loaded.", JSON.stringify(providerResult));
   } catch (e: any) {
     console.error("Provider load failed:", e.message);
