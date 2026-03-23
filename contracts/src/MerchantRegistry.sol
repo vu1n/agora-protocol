@@ -18,6 +18,7 @@ contract MerchantRegistry {
 
     event MerchantRegistered(bytes32 indexed agentId, address owner, string name, uint256 eddsaAx, uint256 eddsaAy);
     event MerchantDeactivated(bytes32 indexed agentId);
+    event EdDSAKeyUpdated(bytes32 indexed agentId, uint256 oldAx, uint256 oldAy, uint256 newAx, uint256 newAy);
     event PurchaseRootUpdated(bytes32 indexed agentId, bytes32 oldRoot, bytes32 newRoot);
 
     modifier onlyMerchantOwner(bytes32 agentId) {
@@ -49,6 +50,17 @@ contract MerchantRegistry {
         bytes32 oldRoot = merchants[agentId].purchaseRoot;
         merchants[agentId].purchaseRoot = newRoot;
         emit PurchaseRootUpdated(agentId, oldRoot, newRoot);
+    }
+
+    function updateEdDSAKey(bytes32 agentId, uint256 newAx, uint256 newAy) external onlyMerchantOwner(agentId) {
+        require(merchants[agentId].active, "merchant not active");
+        uint256 oldAx = merchants[agentId].eddsaAx;
+        uint256 oldAy = merchants[agentId].eddsaAy;
+        merchants[agentId].eddsaAx = newAx;
+        merchants[agentId].eddsaAy = newAy;
+        // Invalidate the purchase root — existing proofs were signed with the old key
+        merchants[agentId].purchaseRoot = bytes32(0);
+        emit EdDSAKeyUpdated(agentId, oldAx, oldAy, newAx, newAy);
     }
 
     function deactivateMerchant(bytes32 agentId) external onlyMerchantOwner(agentId) {

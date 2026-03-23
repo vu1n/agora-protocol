@@ -32,7 +32,7 @@ Every receipt leaf hash is signed by the merchant's Baby Jubjub EdDSA key. The c
 | Replay a valid receipt from a different merchant | `scopeCommitment` binds receipts to a specific merchant/category | Circuit (leaf hash includes scopeCommitment) |
 | Modify a signed receipt (change amount) | Signature is over the full leaf hash (all 5 fields) | Circuit (Poseidon hash → EdDSA verify) |
 
-**Residual risk:** If a merchant's EdDSA private key is compromised, an attacker can forge receipts for that merchant. Mitigation: key rotation support (not yet implemented — `MerchantRegistry` currently has no key update function).
+**Residual risk:** If a merchant's EdDSA private key is compromised, an attacker can forge receipts for that merchant. **Mitigation:** `MerchantRegistry.updateEdDSAKey()` allows the merchant to rotate to a new key. Key rotation also invalidates the purchase root (zeroes it), because existing proofs were signed with the old key. The merchant must rebuild their Merkle tree with receipts signed by the new key and publish a fresh root.
 
 ---
 
@@ -183,7 +183,7 @@ A buyer includes old receipts in a time-bounded proof.
 
 ## Known Limitations
 
-1. **No key rotation.** `MerchantRegistry` does not support EdDSA key updates. A compromised key requires re-registration with a new agent ID.
+1. **Key rotation invalidates all proofs.** `MerchantRegistry.updateEdDSAKey()` supports key rotation but zeroes the purchase root. Buyers must wait for the merchant to re-sign receipts and publish a new root before generating fresh proofs.
 
 2. **No receipt revocation.** If a purchase is refunded, the signed receipt remains valid. The buyer can still use it in loyalty proofs. A revocation scheme would require either a blacklist in the circuit or an updated Merkle root that excludes the revoked leaf.
 
