@@ -89,7 +89,24 @@ Buyers post "looking to buy X" from throwaway stealth-address-backed ERC-8004 id
 | **Time-bounded loyalty** | `hash(sellerId)` | `now - 90 days` | "I spent >= $300 in the last quarter" |
 | **Intra-merchant category LTV** | `hash(categoryId)` | `0` or bounded | "I spent >= $400 on coffee at your shop" |
 
-The `scopeCommitment` field determines the scope of the proof. For per-merchant proofs, it hashes the merchant's ID. For category proofs, it hashes a category identifier — but the proof is always against a single merchant's Merkle tree. A merchant with multiple product categories (coffee, pastries, merch) can offer category-specific loyalty tiers by having buyers prove spend within a category scope. Cross-merchant aggregation (proving spend across independent merchants) would require recursive proofs or a shared Merkle tree — see [What's Next](#whats-next).
+The `scopeCommitment` field determines the scope of the proof. For per-merchant proofs, it hashes the merchant's ID. For category proofs, it hashes a category identifier — each proof is against a single merchant's Merkle tree.
+
+### Composable LTV: Merchant-Defined Lifetime Value
+
+Merchants define what LTV means to them by requesting multiple proofs in parallel across the categories that matter to their business:
+
+```
+"Show me this buyer's spend on [coffee, brunch, breakfast] in the past 180 days"
+
+→ Verify 3 proofs in parallel:
+  scopeCommitment=hash("coffee"),    minTimestamp=now-180d, threshold=$200
+  scopeCommitment=hash("brunch"),    minTimestamp=now-180d, threshold=$100
+  scopeCommitment=hash("breakfast"), minTimestamp=now-180d, threshold=$50
+
+→ All 3 pass? → Premium tier. Offer 15% off.
+```
+
+This is more powerful than a single aggregate number because each merchant customizes their LTV formula. A coffee shop weights coffee spend. A restaurant weights dining categories. The buyer proves each scope independently — the merchant composes the results. No single proof needs to span multiple merchants' trees.
 
 ### Security Properties
 
@@ -197,7 +214,9 @@ anvil & npx tsx src/demo.ts        # 3 EdDSA proof types
 
 ## What's Next
 
-- **Cross-merchant loyalty aggregation** — recursive proofs or shared Merkle trees for proving spend across multiple merchants
+- **npm publish** — release `agora-protocol` as a public package
+- **Receipt revocation** — ZK-compatible mechanism for handling refunds (sparse Merkle exclusion proofs or accumulator-based revocation)
+- **Cross-merchant proof composition** — recursive proofs (Nova/folding) for aggregating spend across independent merchants' trees
 
 ## Hackathon
 

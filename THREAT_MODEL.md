@@ -189,6 +189,6 @@ A buyer includes old receipts in a time-bounded proof.
 
 3. **8-receipt limit per proof.** The circuit supports max 8 receipts per proof. A buyer with more than 8 qualifying purchases must select the 8 highest-value ones. This is a circuit size tradeoff (more slots = more EdDSA verifiers = larger circuit).
 
-4. **Single Merkle root per proof.** Cross-merchant aggregation ("spent $500 across all coffee shops") requires proving against multiple merchants' trees. The current circuit takes a single `merkleRoot`. Cross-merchant proofs would require recursive proving or a shared category tree.
+4. **Single Merkle root per proof.** Each proof verifies against one merchant's tree. Merchants compose LTV by requesting multiple category-scoped proofs in parallel (e.g., "prove coffee spend >= $200 AND brunch spend >= $100"). Cross-merchant aggregation (proving spend across independent merchants' trees in a single proof) would require recursive proving or a shared category tree.
 
 5. **64-bit comparators.** `GreaterEqThan(64)` supports amounts up to ~18.4 × 10^18 in smallest units. Sufficient for USDC (6 decimals, max ~$18.4 trillion) but could overflow for 18-decimal tokens at very large values.
