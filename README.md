@@ -61,6 +61,7 @@ Buyer Agent                                                    Merchant Agent
 | **LoyaltyManager** | Arbitrum [`0x7E68...800e`](https://arbiscan.io/address/0x7E68F87f59D141FBc5021E2F528d683739bb800e) |
 | **Agent Identity** | Base ERC-8004 #35295 ([Synthesis participant `fc01b9da`](https://synthesis.devfolio.co)) |
 | **On-chain proof** | [tx 0x7c525dc1...](https://arbiscan.io/tx/0x7c525dc1ba7e5cc511dd4d2be6ff6403792fbe095f81043af394a9d9ad920840) (EdDSA-signed Groth16 verified, 326k gas) |
+| **Stealth payment** | [tx 0x86709...](https://arbiscan.io/tx/0x8670970e2ed36c93c65aa7223c31b1c3133591dd29f93f7df5c6c171bf73569f) (USDC to stealth address, merchant scan confirmed) |
 | **Source** | [github.com/vu1n/agora-protocol](https://github.com/vu1n/agora-protocol) |
 
 ## Privacy Model
@@ -216,7 +217,7 @@ anvil & npx tsx src/demo.ts        # 3 EdDSA proof types
 
 - **npm publish** — release `agora-protocol` as a public package
 - **Receipt revocation** — ZK-compatible mechanism for handling refunds (sparse Merkle exclusion proofs or accumulator-based revocation)
-- **Cross-merchant proof composition** — recursive proofs (Nova/folding) for aggregating spend across independent merchants' trees
+
 
 ## Hackathon
 
