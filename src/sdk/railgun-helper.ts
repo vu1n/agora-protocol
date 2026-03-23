@@ -51,7 +51,7 @@ export interface RailgunInitParams {
   dataDir?: string;
   /** Wallet derivation index (default: 0) */
   derivationIndex?: number;
-  /** POI node URLs (default: Railway POI aggregator) */
+  /** POI node URLs (required for Arbitrum/Polygon — default: public aggregator) */
   poiNodeURLs?: string[];
   /** Whether to skip merkletree scans (default: false) */
   skipScans?: boolean;
@@ -148,7 +148,7 @@ export async function initRailgun(params: RailgunInitParams): Promise<RailgunIns
     networkName = NetworkName.Arbitrum,
     dataDir = ".railgun",
     derivationIndex = 0,
-    poiNodeURLs = [],
+    poiNodeURLs = ["https://poi-node.railgun.org"],
     skipScans = false,
   } = params;
 
@@ -174,9 +174,12 @@ export async function initRailgun(params: RailgunInitParams): Promise<RailgunIns
   );
 
   // 4. Load provider
+  // Note: Railgun requires total provider weight >= 2 for fallback quorum.
+  // With a single RPC, set weight=2. Public RPCs may timeout on the contract
+  // calls loadProvider makes — use a dedicated RPC (Alchemy, Infura) for reliability.
   const fallbackConfig: FallbackProviderJsonConfig = {
     chainId: networkNameToChainId(networkName),
-    providers: [{ provider: rpcUrl, priority: 1, weight: 1 }],
+    providers: [{ provider: rpcUrl, priority: 1, weight: 2 }],
   };
   await loadProvider(fallbackConfig, networkName);
 
@@ -215,7 +218,7 @@ export async function loadExistingRailgunWallet(
     encryptionKey,
     networkName = NetworkName.Arbitrum,
     dataDir = ".railgun",
-    poiNodeURLs = [],
+    poiNodeURLs = ["https://poi-node.railgun.org"],
     skipScans = false,
   } = params;
 
@@ -231,7 +234,7 @@ export async function loadExistingRailgunWallet(
 
   const fallbackConfig: FallbackProviderJsonConfig = {
     chainId: networkNameToChainId(networkName),
-    providers: [{ provider: rpcUrl, priority: 1, weight: 1 }],
+    providers: [{ provider: rpcUrl, priority: 1, weight: 2 }],
   };
   await loadProvider(fallbackConfig, networkName);
 
