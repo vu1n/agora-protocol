@@ -62,6 +62,7 @@ Buyer Agent                                                    Merchant Agent
 | **Agent Identity** | Base ERC-8004 #35295 ([Synthesis participant `fc01b9da`](https://synthesis.devfolio.co)) |
 | **On-chain proof** | [tx 0x7c525dc1...](https://arbiscan.io/tx/0x7c525dc1ba7e5cc511dd4d2be6ff6403792fbe095f81043af394a9d9ad920840) (EdDSA-signed Groth16 verified, 326k gas) |
 | **Stealth payment** | [tx 0x86709...](https://arbiscan.io/tx/0x8670970e2ed36c93c65aa7223c31b1c3133591dd29f93f7df5c6c171bf73569f) (USDC to stealth address, merchant scan confirmed) |
+| **Railgun shield** | [tx 0xf1921...](https://arbiscan.io/tx/0xf192174bdb6c4fdda512e69710f9a0eb1948ce70056ba17c66b48aef44c6fbfc) (USDC shielded into Railgun pool for full privacy) |
 | **Source** | [github.com/vu1n/agora-protocol](https://github.com/vu1n/agora-protocol) |
 
 ## Privacy Model

@@ -1,278 +1,171 @@
 /**
- * Railgun Demo — attempt a shielded payment on Arbitrum mainnet.
- *
- * Steps:
- *   1. Initialize Railgun engine (download artifacts, create wallet)
- *   2. Shield USDC into the Railgun pool
- *   3. Wait for merkle tree scan to detect shielded balance
- *   4. Execute a cross-contract stealth payment through the shielded pool
+ * Railgun Shield Demo — aligned with official docs.
+ * https://docs.railgun.org/developer-guide/wallet/getting-started
+ * https://docs.railgun.org/developer-guide/wallet/transactions/shielding
  *
  * Usage:
- *   PRIVATE_KEY=0x... bun run src/railgun-demo.ts
+ *   PRIVATE_KEY=0x... ARBITRUM_RPC=https://... bun run src/railgun-demo.ts
  */
 import {
-  createWalletClient,
-  createPublicClient,
-  http,
-  parseAbi,
-  formatUnits,
-  type Hex,
-  type Address,
-} from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { arbitrum } from "viem/chains";
-import {
-  startRailgunEngine,
-  createRailgunWallet,
-  loadProvider,
-  setOnBalanceUpdateCallback,
-  setOnUTXOMerkletreeScanCallback,
-  walletForID,
-  balanceForERC20Token,
-  getShieldPrivateKeySignatureMessage,
-  populateShield,
-} from "@railgun-community/wallet";
-import { ArtifactStore } from "@railgun-community/wallet";
-import {
+  NETWORK_CONFIG,
   NetworkName,
   TXIDVersion,
   type RailgunERC20AmountRecipient,
+  type FallbackProviderJsonConfig,
 } from "@railgun-community/shared-models";
+import {
+  startRailgunEngine,
+  loadProvider,
+  createRailgunWallet,
+  populateShield,
+  setOnUTXOMerkletreeScanCallback,
+  setOnBalanceUpdateCallback,
+  setLoggers,
+  ArtifactStore,
+} from "@railgun-community/wallet";
+import { Wallet, Contract, JsonRpcProvider } from "ethers";
 import * as fs from "fs";
 import * as path from "path";
 
-const USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as Address;
-const RPC = process.env.ARBITRUM_RPC ?? "https://arb1.arbitrum.io/rpc";
-const SHIELD_AMOUNT = 100000n; // $0.10 USDC
+const USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
 const DATA_DIR = ".railgun-demo";
-
-const erc20Abi = parseAbi([
-  "function balanceOf(address) view returns (uint256)",
-  "function approve(address spender, uint256 amount) returns (bool)",
-]);
+const SHIELD_AMOUNT = 100000n; // $0.10 USDC
 
 async function main() {
   const privKey = process.env.PRIVATE_KEY;
-  if (!privKey) {
-    console.error("Set PRIVATE_KEY env var");
+  const rpcUrl = process.env.ARBITRUM_RPC;
+  if (!privKey || !rpcUrl) {
+    console.error("Set PRIVATE_KEY and ARBITRUM_RPC env vars");
     process.exit(1);
   }
 
-  const account = privateKeyToAccount(privKey as Hex);
-  const walletClient = createWalletClient({
-    account,
-    chain: arbitrum,
-    transport: http(RPC),
-  });
-  const publicClient = createPublicClient({
-    chain: arbitrum,
-    transport: http(RPC),
-  });
+  console.log("=== Railgun Shield Demo (Arbitrum) ===\n");
 
-  console.log("=== Agora Railgun Demo (Arbitrum Mainnet) ===\n");
-  console.log(`Wallet: ${account.address}`);
+  // ── Step 7 (early): Debug logger ──
+  setLoggers(
+    (msg: any) => console.log(`  [engine] ${msg}`),
+    (err: any) => console.error(`  [engine:err] ${err}`),
+  );
 
-  // Check balances
-  const usdcBalance = await publicClient.readContract({
-    address: USDC,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [account.address],
-  });
-  const ethBalance = await publicClient.getBalance({ address: account.address });
-  console.log(`USDC: ${formatUnits(usdcBalance, 6)}`);
-  console.log(`ETH:  ${formatUnits(ethBalance, 18)}`);
-
-  if (usdcBalance < SHIELD_AMOUNT) {
-    console.error(`Need ${formatUnits(SHIELD_AMOUNT, 6)} USDC, have ${formatUnits(usdcBalance, 6)}`);
-    process.exit(1);
-  }
-
-  // ── Step 1: Initialize Railgun engine ──
-  console.log("\n--- Step 1: Initialize Railgun engine ---");
-
+  // ── Step 3: Database (leveldown for node) ──
+  console.log("[1/6] Setting up database...");
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  const artifactDir = path.join(DATA_DIR, "artifacts");
-  fs.mkdirSync(artifactDir, { recursive: true });
+  const leveldown = (await import("leveldown")).default;
+  const db = leveldown(path.join(DATA_DIR, "db"));
 
+  // ── Step 4: Artifact store ──
+  console.log("[2/6] Setting up artifact store...");
+  const artifactsDir = path.join(DATA_DIR, "artifacts");
   const artifactStore = new ArtifactStore(
     async (p: string) => {
-      const full = path.join(artifactDir, p);
-      if (!fs.existsSync(full)) return null;
-      return fs.readFileSync(full);
+      const full = path.join(artifactsDir, p);
+      try { return await fs.promises.readFile(full); } catch { return null; }
     },
     async (dir: string, p: string, item: string | Uint8Array) => {
-      const fullDir = path.join(artifactDir, dir);
-      fs.mkdirSync(fullDir, { recursive: true });
-      fs.writeFileSync(path.join(artifactDir, p), item);
+      await fs.promises.mkdir(path.join(artifactsDir, dir), { recursive: true });
+      await fs.promises.writeFile(path.join(artifactsDir, p), item);
     },
-    async (p: string) => fs.existsSync(path.join(artifactDir, p)),
+    async (p: string) => {
+      try { await fs.promises.access(path.join(artifactsDir, p)); return true; } catch { return false; }
+    },
   );
 
-  // LevelDB for wallet state
-  const { Level } = await import("level");
-  const dbPath = path.join(DATA_DIR, "db");
-  fs.mkdirSync(dbPath, { recursive: true });
-  const db = new Level(dbPath) as any;
-
-  console.log("Starting engine (downloading artifacts if needed)...");
+  // ── Step 5: Start engine ──
+  console.log("[3/6] Starting engine...");
   await startRailgunEngine(
-    "agora",
-    db,
-    false,       // shouldDebug
+    "agora",             // walletSource (max 16 chars)
+    db,                  // LevelDOWN database
+    true,                // shouldDebug
     artifactStore,
-    false,       // useNativeArtifacts (nodejs = false)
-    true,        // skipMerkletreeScans — we'll trigger manually after shielding
-    process.env.POI_NODE_URL ? [process.env.POI_NODE_URL] : [],  // POI aggregator (optional via env)
+    false,               // useNativeArtifacts (false for node)
+    false,               // skipMerkletreeScans — required for wallet creation
+    ["https://ppoi-agg.horsewithsixlegs.xyz"],
   );
-  console.log("Engine started.");
+  console.log("Engine started.\n");
 
-  let scanComplete = false;
-  setOnUTXOMerkletreeScanCallback((scanData) => {
-    console.log(`  Merkle scan: ${Math.round(scanData.progress * 100)}%`);
-    if (scanData.progress >= 1) scanComplete = true;
-  });
-  setOnBalanceUpdateCallback(() => {
-    console.log(`  Balance update received`);
-  });
+  // ── Step 8: Load provider ──
+  console.log("[4/6] Loading provider...");
+  const providerConfig: FallbackProviderJsonConfig = {
+    chainId: NETWORK_CONFIG[NetworkName.Arbitrum].chain.id,
+    providers: [{
+      provider: rpcUrl,
+      priority: 3,
+      weight: 2,
+      maxLogsPerBatch: 1,
+    }],
+  };
 
-  // ── Step 2: Load provider ──
-  console.log("\n--- Step 2: Load Arbitrum provider ---");
+  const pollingInterval = 1000 * 60 * 5;
+  const providerPromise = loadProvider(providerConfig, NetworkName.Arbitrum, pollingInterval);
+  const timeout = new Promise((_, rej) =>
+    setTimeout(() => rej(new Error("loadProvider timeout (5min)")), 300000),
+  );
+
   try {
-    const { createFallbackProviderFromJsonConfig } = await import("@railgun-community/shared-models");
-    const config = {
-      chainId: 42161,
-      providers: [{ provider: RPC, priority: 1, weight: 2, stallTimeout: 10000 }],
-    };
-    console.log("Testing provider creation directly...");
-    const fp = createFallbackProviderFromJsonConfig(config);
-    console.log("FallbackProvider created:", !!fp);
-
-    console.log("Calling loadProvider (may take 30-60s for contract reads)...");
-    const providerPromise = loadProvider(config, NetworkName.Arbitrum, 15000);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("loadProvider timed out after 120s")), 120000),
-    );
-    const providerResult = await Promise.race([providerPromise, timeoutPromise]);
-    console.log("Provider loaded.", JSON.stringify(providerResult));
+    const result = await Promise.race([providerPromise, timeout]);
+    console.log("Provider loaded.\n");
   } catch (e: any) {
-    console.error("Provider load failed:", e.message);
-    if (e.cause) console.error("Cause:", e.cause?.message ?? e.cause);
-    // Try to get the real stack
-    console.error("Stack:", e.stack?.split("\n").slice(0, 5).join("\n"));
+    console.error(`\nProvider failed: ${e.message}`);
+    console.error("This usually means the RPC can't handle Railgun's batch contract reads.");
     process.exit(1);
   }
 
-  // ── Step 3: Create Railgun wallet ──
-  console.log("\n--- Step 3: Create Railgun wallet ---");
+  // ── Create wallet ──
+  console.log("[5/6] Creating wallet...");
   const mnemonic = "test test test test test test test test test test test junk";
-  const encryptionKey = "agora-demo-key";
+  // Encryption key must be 32 bytes hex
+  const encryptionKey = "0000000000000000000000000000000000000000000000000000000000000001";
+  const walletInfo = await createRailgunWallet(encryptionKey, mnemonic, undefined, 0);
+  console.log(`Railgun address: ${walletInfo.railgunAddress}\n`);
 
-  let walletInfo;
-  try {
-    walletInfo = await createRailgunWallet(encryptionKey, mnemonic, undefined, 0);
-    console.log(`Wallet created: ${walletInfo.id}`);
-    console.log(`Railgun address: ${walletInfo.railgunAddress}`);
-  } catch (e: any) {
-    console.log(`Wallet already exists or error: ${e.message}`);
-    process.exit(1);
-  }
+  // ── Shield USDC ──
+  console.log("[6/6] Shielding USDC...");
+  const provider = new JsonRpcProvider(rpcUrl);
+  const wallet = new Wallet(privKey, provider);
 
-  // ── Step 4: Shield USDC ──
-  console.log("\n--- Step 4: Shield USDC into Railgun pool ---");
+  const usdcContract = new Contract(USDC, [
+    "function approve(address,uint256) returns (bool)",
+    "function balanceOf(address) view returns (uint256)",
+  ], wallet);
 
-  // Get the shield signature message
-  const shieldSignatureMessage = getShieldPrivateKeySignatureMessage();
-  console.log(`Signing shield message...`);
+  const balance = await usdcContract.balanceOf(wallet.address);
+  console.log(`USDC balance: ${balance}`);
 
-  // Sign it with our wallet
-  const shieldSignature = await walletClient.signMessage({
-    message: shieldSignatureMessage,
-  });
+  // Approve proxy
+  const spender = NETWORK_CONFIG[NetworkName.Arbitrum].proxyContract;
+  const approveTx = await usdcContract.approve(spender, SHIELD_AMOUNT);
+  await approveTx.wait();
+  console.log(`Approved: ${approveTx.hash}`);
 
-  // Build the shield transaction
-  const shieldERC20Recipients: RailgunERC20AmountRecipient[] = [
-    {
-      tokenAddress: USDC,
-      amount: SHIELD_AMOUNT,
-      recipientAddress: walletInfo.railgunAddress!,
-    },
-  ];
+  // Shield private key — sign canonical message, take first 32 bytes as EC private key
+  const { getShieldPrivateKeySignatureMessage } = await import("@railgun-community/wallet");
+  const shieldMsg = getShieldPrivateKeySignatureMessage();
+  const shieldSig = await wallet.signMessage(shieldMsg);
+  // Signature is 65 bytes; Railgun needs 32 bytes for an EC private key
+  const shieldPrivateKey = shieldSig.slice(0, 66); // 0x + 64 hex chars = 32 bytes
 
-  console.log(`Populating shield transaction for ${formatUnits(SHIELD_AMOUNT, 6)} USDC...`);
+  const erc20AmountRecipients: RailgunERC20AmountRecipient[] = [{
+    tokenAddress: USDC,
+    amount: SHIELD_AMOUNT,
+    recipientAddress: walletInfo.railgunAddress!,
+  }];
 
-  const { transaction: shieldTx } = await populateShield(
+  const { transaction } = await populateShield(
     TXIDVersion.V2_PoseidonMerkle,
     NetworkName.Arbitrum,
-    shieldSignature as Hex,
-    shieldERC20Recipients,
-    [], // no NFTs
+    shieldPrivateKey,
+    erc20AmountRecipients,
+    [],
   );
 
-  // First approve the Railgun contract to spend our USDC
-  console.log(`Approving Railgun contract...`);
-  const approveTx = await walletClient.writeContract({
-    address: USDC,
-    abi: erc20Abi,
-    functionName: "approve",
-    args: [shieldTx.to as Address, SHIELD_AMOUNT],
-  });
-  const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveTx });
-  console.log(`Approve confirmed: ${approveTx} (gas: ${approveReceipt.gasUsed})`);
-
-  // Execute the shield
-  console.log(`Executing shield transaction...`);
-  const shieldHash = await walletClient.sendTransaction({
-    to: shieldTx.to as Address,
-    data: shieldTx.data as Hex,
-    value: shieldTx.value ? BigInt(shieldTx.value.toString()) : 0n,
-    chain: arbitrum,
-    account: walletClient.account!,
-  });
-
-  const shieldReceipt = await publicClient.waitForTransactionReceipt({ hash: shieldHash });
-  console.log(`Shield confirmed! TX: ${shieldHash}`);
-  console.log(`Gas used: ${shieldReceipt.gasUsed}`);
-  console.log(`Arbiscan: https://arbiscan.io/tx/${shieldHash}`);
-
-  // ── Step 5: Check shielded balance ──
-  console.log("\n--- Step 5: Check shielded balance ---");
-  console.log("Waiting for merkle tree to update (this may take a moment)...");
-
-  // Poll for balance
-  let shieldedBalance = 0n;
-  for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    try {
-      const wallet = walletForID(walletInfo.id);
-      shieldedBalance = await balanceForERC20Token(
-        TXIDVersion.V2_PoseidonMerkle,
-        wallet,
-        NetworkName.Arbitrum,
-        USDC,
-        false, // not only spendable (include pending)
-      );
-      console.log(`  Shielded USDC balance: ${formatUnits(shieldedBalance, 6)}`);
-      if (shieldedBalance > 0n) break;
-    } catch (e: any) {
-      console.log(`  Scan in progress... (${e.message?.slice(0, 50)})`);
-    }
-  }
-
-  // ── Summary ──
-  console.log("\n=== Summary ===");
-  console.log(`Shield TX:        ${shieldHash}`);
-  console.log(`Amount shielded:  ${formatUnits(SHIELD_AMOUNT, 6)} USDC`);
-  console.log(`Shielded balance: ${formatUnits(shieldedBalance, 6)} USDC`);
-  console.log(`\nOn-chain artifact: USDC shielded into Railgun pool on Arbitrum mainnet.`);
-
-  if (shieldedBalance > 0n) {
-    console.log(`\nShielded balance detected! A cross-contract stealth payment`);
-    console.log(`could now be executed for full sender+recipient privacy.`);
-  } else {
-    console.log(`\nShielded balance not yet detected. The merkle tree scan`);
-    console.log(`may need more time. The shield TX is confirmed on-chain.`);
-  }
+  const tx = await wallet.sendTransaction(transaction);
+  console.log(`Shield TX: ${tx.hash}`);
+  const receipt = await tx.wait();
+  console.log(`Confirmed! Gas: ${receipt?.gasUsed}`);
+  console.log(`https://arbiscan.io/tx/${tx.hash}`);
 }
 
-main().catch(console.error);
+main().catch((e) => {
+  console.error("Fatal:", e.message);
+  process.exit(1);
+});

@@ -7,8 +7,14 @@
  *   const config = railgun.buildConfig(unshieldAmounts, gasDetails);
  *   await executor.executeRailgun(plan, config, walletClient);
  *
- * Handles: engine start, artifact storage, provider loading,
- * wallet creation, and balance scanning.
+ * Gotchas discovered during live testing on Arbitrum:
+ *   - Use `leveldown` (not `level`) — Railgun's engine expects AbstractLevelDOWN
+ *   - Provider weight must be >= 2 for single-RPC fallback quorum
+ *   - Set maxLogsPerBatch: 1 to avoid RPC batch limits
+ *   - POI node URL: https://ppoi-agg.horsewithsixlegs.xyz
+ *   - Encryption key must be exactly 32 bytes (64 hex chars, no 0x prefix)
+ *   - skipMerkletreeScans must be false for wallet creation
+ *   - Shield signature: sign "RAILGUN_SHIELD", take first 32 bytes as EC private key
  */
 import {
   startRailgunEngine,
@@ -20,18 +26,18 @@ import {
   balanceForERC20Token,
   setOnUTXOMerkletreeScanCallback,
   walletForID,
+  setLoggers,
   ArtifactStore,
 } from "@railgun-community/wallet";
 import {
   NetworkName,
   TXIDVersion,
+  NETWORK_CONFIG,
   type RailgunWalletInfo,
   type RailgunERC20Amount,
   type TransactionGasDetails,
   type FallbackProviderJsonConfig,
-  type Chain,
 } from "@railgun-community/shared-models";
-import type { AbstractLevelDOWN } from "abstract-leveldown";
 import type { RailgunConfig } from "./executor.js";
 import * as fs from "fs";
 import * as path from "path";
@@ -39,28 +45,28 @@ import * as path from "path";
 // ── Types ──
 
 export interface RailgunInitParams {
-  /** Arbitrum RPC URL */
+  /** RPC URL — use a dedicated provider (Alchemy, Moralis), not a public endpoint */
   rpcUrl: string;
   /** BIP-39 mnemonic for the Railgun wallet */
   mnemonic: string;
-  /** Encryption key for wallet storage (any string, used to encrypt local DB) */
+  /** Encryption key — exactly 32 bytes as hex string (64 chars, no 0x prefix) */
   encryptionKey: string;
   /** Network name (default: Arbitrum) */
   networkName?: NetworkName;
-  /** Directory for storing artifacts and wallet DB (default: .railgun/) */
+  /** Directory for artifacts and wallet DB (default: .railgun/) */
   dataDir?: string;
   /** Wallet derivation index (default: 0) */
   derivationIndex?: number;
-  /** POI node URLs (required for Arbitrum/Polygon — default: public aggregator) */
+  /** POI aggregator URL (default: public aggregator) */
   poiNodeURLs?: string[];
-  /** Whether to skip merkletree scans (default: false) */
-  skipScans?: boolean;
+  /** Enable debug logging (default: false) */
+  debug?: boolean;
 }
 
 export interface RailgunInstance {
   /** The Railgun wallet ID */
   walletID: string;
-  /** The Railgun wallet info */
+  /** The Railgun wallet info (includes railgunAddress) */
   walletInfo: RailgunWalletInfo;
   /** Encryption key (needed for executor config) */
   encryptionKey: string;
@@ -85,59 +91,42 @@ function createFileArtifactStore(dataDir: string): ArtifactStore {
   fs.mkdirSync(artifactDir, { recursive: true });
 
   return new ArtifactStore(
-    // get
-    async (artifactPath: string) => {
-      const fullPath = path.join(artifactDir, artifactPath);
-      if (!fs.existsSync(fullPath)) return null;
-      return fs.readFileSync(fullPath);
+    async (p: string) => {
+      const full = path.join(artifactDir, p);
+      try { return await fs.promises.readFile(full); } catch { return null; }
     },
-    // store
-    async (dir: string, artifactPath: string, item: string | Uint8Array) => {
-      const fullDir = path.join(artifactDir, dir);
-      fs.mkdirSync(fullDir, { recursive: true });
-      const fullPath = path.join(artifactDir, artifactPath);
-      fs.writeFileSync(fullPath, item);
+    async (dir: string, p: string, item: string | Uint8Array) => {
+      await fs.promises.mkdir(path.join(artifactDir, dir), { recursive: true });
+      await fs.promises.writeFile(path.join(artifactDir, p), item);
     },
-    // exists
-    async (artifactPath: string) => {
-      return fs.existsSync(path.join(artifactDir, artifactPath));
+    async (p: string) => {
+      try { await fs.promises.access(path.join(artifactDir, p)); return true; } catch { return false; }
     },
   );
 }
 
 // ── LevelDB factory ──
 
-async function createDB(dataDir: string): Promise<AbstractLevelDOWN> {
-  const { Level } = await import("level");
-  const dbPath = path.join(dataDir, "wallet-db");
+async function createDB(dataDir: string) {
+  // Must use `leveldown` (not `level`) — Railgun engine expects AbstractLevelDOWN
+  const leveldown = (await import("leveldown")).default;
+  const dbPath = path.join(dataDir, "db");
   fs.mkdirSync(dbPath, { recursive: true });
-  const db = new Level(dbPath);
-  // Level v8+ wraps abstract-level; Railgun expects abstract-leveldown.
-  // The underlying store is compatible.
-  return db as unknown as AbstractLevelDOWN;
+  return leveldown(dbPath);
 }
 
 // ── Main init function ──
 
 /**
- * Initialize the Railgun engine, load a provider, and create/load a wallet.
- *
- * This replaces ~30 lines of setup boilerplate with a single call.
+ * Initialize the Railgun engine, load a provider, and create a wallet.
  *
  * @example
  * ```ts
  * const railgun = await initRailgun({
- *   rpcUrl: "https://arb1.arbitrum.io/rpc",
+ *   rpcUrl: "https://your-dedicated-rpc.com/arbitrum",
  *   mnemonic: "your twelve word mnemonic ...",
- *   encryptionKey: "any-secret-string",
+ *   encryptionKey: "0000000000000000000000000000000000000000000000000000000000000001",
  * });
- *
- * const config = railgun.buildConfig(
- *   [{ tokenAddress: USDC, amount: 5000000n }],
- *   { maxFeePerGas: 100000000n, maxPriorityFeePerGas: 1n, gasLimit: 500000n },
- * );
- *
- * const result = await executor.executeRailgun(plan, config, walletClient);
  * ```
  */
 export async function initRailgun(params: RailgunInitParams): Promise<RailgunInstance> {
@@ -148,66 +137,75 @@ export async function initRailgun(params: RailgunInitParams): Promise<RailgunIns
     networkName = NetworkName.Arbitrum,
     dataDir = ".railgun",
     derivationIndex = 0,
-    poiNodeURLs = ["https://poi-node.railgun.org"],
-    skipScans = false,
+    poiNodeURLs = ["https://ppoi-agg.horsewithsixlegs.xyz"],
+    debug = false,
   } = params;
+
+  // Validate encryption key length
+  const keyBytes = encryptionKey.replace(/^0x/, "");
+  if (keyBytes.length !== 64) {
+    throw new Error(`encryptionKey must be 32 bytes (64 hex chars). Got ${keyBytes.length} chars.`);
+  }
 
   fs.mkdirSync(dataDir, { recursive: true });
 
-  // 1. Create DB and artifact store
+  // Debug logger
+  if (debug) {
+    setLoggers(
+      (msg: any) => console.log(`  [railgun] ${msg}`),
+      (err: any) => console.error(`  [railgun:err] ${err}`),
+    );
+  }
+
+  // 1. Database + artifact store
   const db = await createDB(dataDir);
   const artifactStore = createFileArtifactStore(dataDir);
 
-  // 2. Set scan callbacks (no-op by default, prevents unhandled errors)
-  setOnUTXOMerkletreeScanCallback(() => {});
-  setOnBalanceUpdateCallback(() => {});
-
-  // 3. Start engine
+  // 2. Start engine
+  // skipMerkletreeScans must be false — wallet creation requires scans
   await startRailgunEngine(
-    "agora",          // walletSource (max 16 chars, lowercase)
+    "agora",
     db,
-    false,            // shouldDebug
+    debug,
     artifactStore,
-    false,            // useNativeArtifacts (false for nodejs)
-    skipScans,
+    false,           // useNativeArtifacts (false for nodejs)
+    false,           // skipMerkletreeScans — required for wallet creation
     poiNodeURLs,
   );
 
+  // 3. Set callbacks after engine start (setting before throws)
+  setOnUTXOMerkletreeScanCallback(() => {});
+  setOnBalanceUpdateCallback(() => {});
+
   // 4. Load provider
-  // Note: Railgun requires total provider weight >= 2 for fallback quorum.
-  // With a single RPC, set weight=2. Public RPCs may timeout on the contract
-  // calls loadProvider makes — use a dedicated RPC (Alchemy, Infura) for reliability.
+  // weight >= 2 required for fallback quorum with single RPC
+  // maxLogsPerBatch: 1 prevents RPC batch limits from causing hangs
+  const chainId = NETWORK_CONFIG[networkName].chain.id;
   const fallbackConfig: FallbackProviderJsonConfig = {
-    chainId: networkNameToChainId(networkName),
-    providers: [{ provider: rpcUrl, priority: 1, weight: 2 }],
+    chainId,
+    providers: [{
+      provider: rpcUrl,
+      priority: 3,
+      weight: 2,
+      maxLogsPerBatch: 1,
+    }],
   };
-  await loadProvider(fallbackConfig, networkName);
+  const pollingInterval = 1000 * 60 * 5; // 5 min per Railgun docs
+  await loadProvider(fallbackConfig, networkName, pollingInterval);
 
-  // 5. Create or load wallet
-  let walletInfo: RailgunWalletInfo;
-  try {
-    walletInfo = await createRailgunWallet(
-      encryptionKey,
-      mnemonic,
-      undefined, // creationBlockNumbers — scan from latest
-      derivationIndex,
-    );
-  } catch (e: any) {
-    // Wallet may already exist in the DB from a previous run
-    if (e.message?.includes("already loaded")) {
-      // Re-throw — caller should use loadWalletByID for existing wallets
-      throw new Error(
-        "Wallet already exists in DB. Pass the walletID to loadExistingRailgunWallet() instead.",
-      );
-    }
-    throw e;
-  }
+  // 5. Create wallet
+  const walletInfo = await createRailgunWallet(
+    keyBytes,
+    mnemonic,
+    undefined,
+    derivationIndex,
+  );
 
-  return createInstance(walletInfo, encryptionKey, networkName);
+  return createInstance(walletInfo, keyBytes, networkName);
 }
 
 /**
- * Load an existing Railgun wallet by ID (for subsequent runs after initial creation).
+ * Load an existing Railgun wallet by ID (for subsequent runs).
  */
 export async function loadExistingRailgunWallet(
   params: Omit<RailgunInitParams, "mnemonic"> & { walletID: string },
@@ -218,28 +216,41 @@ export async function loadExistingRailgunWallet(
     encryptionKey,
     networkName = NetworkName.Arbitrum,
     dataDir = ".railgun",
-    poiNodeURLs = ["https://poi-node.railgun.org"],
-    skipScans = false,
+    poiNodeURLs = ["https://ppoi-agg.horsewithsixlegs.xyz"],
+    debug = false,
   } = params;
 
+  const keyBytes = encryptionKey.replace(/^0x/, "");
+  if (keyBytes.length !== 64) {
+    throw new Error(`encryptionKey must be 32 bytes (64 hex chars). Got ${keyBytes.length} chars.`);
+  }
+
   fs.mkdirSync(dataDir, { recursive: true });
+
+  if (debug) {
+    setLoggers(
+      (msg: any) => console.log(`  [railgun] ${msg}`),
+      (err: any) => console.error(`  [railgun:err] ${err}`),
+    );
+  }
 
   const db = await createDB(dataDir);
   const artifactStore = createFileArtifactStore(dataDir);
 
+  await startRailgunEngine("agora", db, debug, artifactStore, false, false, poiNodeURLs);
+
   setOnUTXOMerkletreeScanCallback(() => {});
   setOnBalanceUpdateCallback(() => {});
 
-  await startRailgunEngine("agora", db, false, artifactStore, false, skipScans, poiNodeURLs);
-
+  const chainId = NETWORK_CONFIG[networkName].chain.id;
   const fallbackConfig: FallbackProviderJsonConfig = {
-    chainId: networkNameToChainId(networkName),
-    providers: [{ provider: rpcUrl, priority: 1, weight: 2 }],
+    chainId,
+    providers: [{ provider: rpcUrl, priority: 3, weight: 2, maxLogsPerBatch: 1 }],
   };
-  await loadProvider(fallbackConfig, networkName);
+  await loadProvider(fallbackConfig, networkName, 1000 * 60 * 5);
 
-  const walletInfo = await loadWalletByID(encryptionKey, walletID, false);
-  return createInstance(walletInfo, encryptionKey, networkName);
+  const walletInfo = await loadWalletByID(keyBytes, walletID, false);
+  return createInstance(walletInfo, keyBytes, networkName);
 }
 
 // ── Internals ──
@@ -262,7 +273,7 @@ function createInstance(
         wallet,
         networkName,
         tokenAddress,
-        true, // onlySpendable
+        true,
       );
     },
 
@@ -285,16 +296,4 @@ function createInstance(
       await stopRailgunEngine();
     },
   };
-}
-
-function networkNameToChainId(networkName: NetworkName): number {
-  const map: Partial<Record<NetworkName, number>> = {
-    [NetworkName.Ethereum]: 1,
-    [NetworkName.Arbitrum]: 42161,
-    [NetworkName.Polygon]: 137,
-    [NetworkName.BNBChain]: 56,
-  };
-  const id = map[networkName];
-  if (!id) throw new Error(`Unsupported network: ${networkName}`);
-  return id;
 }
