@@ -128,7 +128,7 @@ Merchants advertise through their ERC-8004 agent registration:
 
 | Layer | Tool | Tests | Result |
 |-------|------|-------|--------|
-| TypeScript unit + integration | bun test | 56 tests (stealth, recipe, proof-cache, executor, encryption, intents, receipt-server) | 56/56 pass |
+| TypeScript unit + integration | bun test | 63 tests (stealth, recipe, proof-cache, executor, encryption, intents, receipt-server, railgun-helper, private-intent) | 63/63 pass |
 | Solidity unit tests | Foundry | 9 tests with real EdDSA-signed Groth16 proofs | 9/9 pass |
 | Stateful invariant fuzz | Foundry | 128k random call sequences, 3 invariants | 3/3 hold |
 | Symbolic verification | Halmos | Nullifier reuse, root binding, access control, deactivation, count, scope | 6 proofs verified |
@@ -169,6 +169,8 @@ agora/
       executor.ts      <- stealth + Railgun execution modes
       bazaar.ts        <- deal discovery via ERC-8004 agent cards
       intents.ts       <- stealth intents: throwaway identities for anonymous buyer discovery
+      private-intent.ts <- Railgun + stealth intents: fully anonymous buyer discovery
+      railgun-helper.ts <- convenience wrapper for Railgun engine init + wallet + provider
       steps/
         payment.ts     <- stealth payment calldata
         loyalty.ts     <- ZK proof submission calldata
@@ -180,7 +182,7 @@ agora/
 
 ```bash
 bun install
-bun test                           # 56 TypeScript tests
+bun test                           # 63 TypeScript tests
 cd contracts && forge test -vvv    # 12 Foundry tests (9 unit + 3 invariant)
 cd circuits && node negative_tests.mjs  # 10 circuit tests (7 adversarial + 3 baselines)
 anvil & npx tsx src/e2e.ts         # 20-assertion E2E
@@ -195,7 +197,7 @@ anvil & npx tsx src/demo.ts        # 3 EdDSA proof types
 
 ## What's Next
 
-- **Railgun engine helper** — convenience wrapper for `startRailgunEngine` + `createRailgunWallet` + `loadProvider` to reduce init boilerplate
+- **Cross-merchant loyalty aggregation** — recursive proofs or shared Merkle trees for proving spend across multiple merchants
 
 ## Hackathon
 

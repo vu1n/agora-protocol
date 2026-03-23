@@ -10,6 +10,12 @@ export { planAgoraRecipe, type AgoraRecipeParams, type AgoraRecipeResult } from 
 export { planStealthPayment, type StealthPaymentParams } from "./steps/payment.js";
 export { planLoyaltyProof, type LoyaltyProofParams } from "./steps/loyalty.js";
 export { AgoraExecutor, type ExecutionResult, type RailgunConfig } from "./executor.js";
+export {
+  initRailgun,
+  loadExistingRailgunWallet,
+  type RailgunInitParams,
+  type RailgunInstance,
+} from "./railgun-helper.js";
 export { DealDiscovery, type Deal, type AgentRegistration } from "./bazaar.js";
 export {
   createThrowawayIdentity,
@@ -20,6 +26,11 @@ export {
   type StealthIntent,
   type ThrowawayIdentity,
 } from "./intents.js";
+export {
+  createPrivateIntent,
+  type PrivateIntentParams,
+  type PrivateIntentResult,
+} from "./private-intent.js";
 export {
   deriveStealthAddress,
   checkStealthAddress,
