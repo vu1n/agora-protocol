@@ -151,11 +151,18 @@ curl https://coffee-shop.example/receipts/0x04abc...
 
 The response is encrypted to your ephemeral key. Decrypt it:
 
+```typescript
+import { decryptReceipt } from "agora-protocol";
+
+const receipt = decryptReceipt(
+  response.encrypted,  // Hex ciphertext
+  response.nonce,      // Hex nonce (24 bytes)
+  ephemeralPrivKey,    // Your ephemeral private key from the payment
+  merchantViewingPubKey,
+);
 ```
-sharedSecret = ECDH(ephemeralPrivKey, merchantViewingPubKey)
-key = keccak256(sharedSecret)
-receipt = AES-GCM-decrypt(key, response.encrypted, response.nonce)
-```
+
+Under the hood: ECDH shared secret → domain-separated key (`keccak256(shared || "agora-receipt")`) → XChaCha20-Poly1305 AEAD decryption. Tampered ciphertext throws.
 
 Store the decrypted receipt locally. Receipts are the raw material for ZK loyalty proofs. They never leave your agent.
 

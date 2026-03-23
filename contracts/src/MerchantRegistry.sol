@@ -17,6 +17,7 @@ contract MerchantRegistry {
     mapping(bytes32 => Merchant) public merchants;
 
     event MerchantRegistered(bytes32 indexed agentId, address owner, string name, uint256 eddsaAx, uint256 eddsaAy);
+    event MerchantDeactivated(bytes32 indexed agentId);
     event PurchaseRootUpdated(bytes32 indexed agentId, bytes32 oldRoot, bytes32 newRoot);
 
     modifier onlyMerchantOwner(bytes32 agentId) {
@@ -53,6 +54,7 @@ contract MerchantRegistry {
     function deactivateMerchant(bytes32 agentId) external onlyMerchantOwner(agentId) {
         merchants[agentId].active = false;
         merchants[agentId].purchaseRoot = bytes32(0);
+        emit MerchantDeactivated(agentId);
     }
 
     function getPurchaseRoot(bytes32 agentId) external view returns (bytes32) {

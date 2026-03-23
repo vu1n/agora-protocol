@@ -6,7 +6,13 @@ Agora is an npm package (`agora-protocol`) that gives AI agents private payments
 
 Merchants reward repeat customers via ZK loyalty proofs — no customer database, no tracking, no data liability. Receipts are EdDSA-signed by the merchant and verified in-circuit.
 
-Built for [The Synthesis](https://synthesis.md) hackathon.
+Built for [The Synthesis](https://synthesis.md) hackathon. **[Visual explainer →](https://htmlpreview.github.io/?https://github.com/vu1n/agora-protocol/blob/main/assets/privacy-flow.html)**
+
+<p align="center">
+  <a href="https://htmlpreview.github.io/?https://github.com/vu1n/agora-protocol/blob/main/assets/privacy-flow.html">
+    <img src="assets/logo.png" alt="Agora" width="200">
+  </a>
+</p>
 
 ## Architecture
 
@@ -53,7 +59,7 @@ Buyer Agent                                                    Merchant Agent
 | **LoyaltyVerifier** | Arbitrum [`0x2153...4eBd`](https://arbiscan.io/address/0x21535e0418F11551f1BcA480e2366631E3174eBd) |
 | **MerchantRegistry** | Arbitrum [`0xc908...1DF2`](https://arbiscan.io/address/0xc908B8883B3A14C8c4972f506a041318EDCe1DF2) |
 | **LoyaltyManager** | Arbitrum [`0x7E68...800e`](https://arbiscan.io/address/0x7E68F87f59D141FBc5021E2F528d683739bb800e) |
-| **Agent Identity** | Base ERC-8004 #35295 |
+| **Agent Identity** | Base ERC-8004 #35295 ([Synthesis participant `fc01b9da`](https://synthesis.devfolio.co)) |
 | **On-chain proof** | [tx 0x7c525dc1...](https://arbiscan.io/tx/0x7c525dc1ba7e5cc511dd4d2be6ff6403792fbe095f81043af394a9d9ad920840) (EdDSA-signed Groth16 verified, 326k gas) |
 | **Source** | [github.com/vu1n/agora-protocol](https://github.com/vu1n/agora-protocol) |
 
@@ -81,7 +87,9 @@ Buyers post "looking to buy X" from throwaway stealth-address-backed ERC-8004 id
 |----------|----------------|-------------|---------|
 | **Per-merchant loyalty** | `hash(sellerId)` | `0` (all time) | "I spent >= $500 at your shop" |
 | **Time-bounded loyalty** | `hash(sellerId)` | `now - 90 days` | "I spent >= $300 in the last quarter" |
-| **Cross-category LTV** | `hash(categoryId)` | `0` or bounded | "I spent >= $400 across all coffee shops" |
+| **Intra-merchant category LTV** | `hash(categoryId)` | `0` or bounded | "I spent >= $400 on coffee at your shop" |
+
+The `scopeCommitment` field determines the scope of the proof. For per-merchant proofs, it hashes the merchant's ID. For category proofs, it hashes a category identifier — but the proof is always against a single merchant's Merkle tree. A merchant with multiple product categories (coffee, pastries, merch) can offer category-specific loyalty tiers by having buyers prove spend within a category scope. Cross-merchant aggregation (proving spend across independent merchants) would require recursive proofs or a shared Merkle tree — see [What's Next](#whats-next).
 
 ### Security Properties
 

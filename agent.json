@@ -1,0 +1,65 @@
+{
+  "name": "Agora",
+  "description": "Private commerce SDK for AI agents. Stealth address payments, ZK loyalty proofs, encrypted receipt delivery.",
+  "version": "0.1.0",
+  "operator": {
+    "wallet": "0x91f0d4a1DD291e83D7d3321813a8299edD13556d",
+    "chain": "arbitrum"
+  },
+  "identity": {
+    "erc8004": {
+      "participantId": "fc01b9daf0d44bf084dc344a4968f426",
+      "chain": "base",
+      "agentNumber": 35295
+    }
+  },
+  "tools": [
+    "circom",
+    "snarkjs",
+    "foundry",
+    "halmos",
+    "circomspect",
+    "viem",
+    "@noble/ciphers",
+    "@railgun-community/wallet"
+  ],
+  "techStack": {
+    "language": "TypeScript",
+    "runtime": "Bun",
+    "contracts": "Solidity (Foundry)",
+    "circuits": "Circom (Groth16)",
+    "model": "claude-opus-4-6",
+    "harness": "claude-code"
+  },
+  "capabilities": [
+    "stealth-address-payments",
+    "railgun-shielded-payments",
+    "zk-loyalty-proofs",
+    "eddsa-receipt-signing",
+    "encrypted-receipt-delivery",
+    "erc8004-deal-discovery",
+    "proof-caching"
+  ],
+  "taskCategories": [
+    "private-commerce",
+    "zk-proofs",
+    "stealth-addresses",
+    "loyalty-programs",
+    "agent-to-agent-payments"
+  ],
+  "contracts": {
+    "chain": "arbitrum",
+    "chainId": 42161,
+    "addresses": {
+      "LoyaltyVerifier": "0x21535e0418F11551f1BcA480e2366631E3174eBd",
+      "MerchantRegistry": "0xc908B8883B3A14C8c4972f506a041318EDCe1DF2",
+      "LoyaltyManager": "0x7E68F87f59D141FBc5021E2F528d683739bb800e"
+    }
+  },
+  "computeConstraints": {
+    "proofGeneration": "~4-5s cold, 0ms cached (via ProofCache)",
+    "circuitConstraints": 82510,
+    "onChainGas": "~326k per verification"
+  },
+  "repo": "https://github.com/vu1n/agora-protocol"
+}

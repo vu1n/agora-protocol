@@ -161,17 +161,20 @@ Add an `agora-receipts` service to your 8004 agent card:
 
 When a buyer queries `GET /receipts/{ephemeralPubKey}`, return the receipt encrypted to that buyer's ephemeral key:
 
-```
-Encryption:
-  sharedSecret = ECDH(merchantViewingPrivKey, ephemeralPubKey)
-  encryptionKey = keccak256(sharedSecret)
-  encryptedReceipt = AES-GCM(encryptionKey, receiptJSON)
+```typescript
+import { encryptReceipt } from "agora-protocol";
 
-Response:
-  { "encrypted": "0x...", "nonce": "0x..." }
+const { encrypted, nonce } = encryptReceipt(
+  JSON.stringify(receipt),   // Receipt as JSON string
+  merchantViewingPrivKey,    // Your viewing private key
+  ephemeralPubKey,           // Buyer's ephemeral public key from the payment
+);
+
+// Serve as response:
+// { "encrypted": "0x...", "nonce": "0x..." }
 ```
 
-Only the buyer who generated that ephemeral key can decrypt (they have the ephemeral private key). An observer sees opaque bytes. This uses the same ECDH from the stealth address derivation — no new cryptography.
+Under the hood: ECDH shared secret → domain-separated key (`keccak256(shared || "agora-receipt")`) → XChaCha20-Poly1305 AEAD encryption. Only the buyer who generated that ephemeral key can decrypt. An observer sees opaque bytes.
 
 The buyer pulls receipts when they need them — not at payment time. Your contract with the buyer: **serve the encrypted receipt whenever they ask.**
 
