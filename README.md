@@ -128,10 +128,10 @@ Merchants advertise through their ERC-8004 agent registration:
 
 | Layer | Tool | Tests | Result |
 |-------|------|-------|--------|
-| TypeScript unit + integration | bun test | 48 tests (stealth, recipe, proof-cache, Railgun executor, encryption, intents) | 48/48 pass |
+| TypeScript unit + integration | bun test | 56 tests (stealth, recipe, proof-cache, executor, encryption, intents, receipt-server) | 56/56 pass |
 | Solidity unit tests | Foundry | 9 tests with real EdDSA-signed Groth16 proofs | 9/9 pass |
 | Stateful invariant fuzz | Foundry | 128k random call sequences, 3 invariants | 3/3 hold |
-| Symbolic verification | Halmos | Access control, root binding, nullifier, deactivation | 4 proofs verified |
+| Symbolic verification | Halmos | Nullifier reuse, root binding, access control, deactivation, count, scope | 6 proofs verified |
 | Circuit adversarial | Circom/snarkjs | 10 negative inputs including EdDSA forgery | 10/10 rejected |
 | Circuit static analysis | Circomspect | Full circuit | Clean |
 | End-to-end | TypeScript | 20 assertions (stealth + EdDSA signing + on-chain) | 20/20 pass |
@@ -161,6 +161,7 @@ agora/
     types.ts           <- SpendReceipt with EdDSA sig, MerchantEdDSAKey
     demo.ts            <- 3 EdDSA-signed proof types verified on-chain
     e2e.ts             <- full stealth + EdDSA + on-chain integration test
+    receipt-server.ts   <- reference merchant receipt server (Hono)
     sdk/
       index.ts         <- SDK public surface
       stealth.ts       <- ERC-5564 stealth addresses + receipt encrypt/decrypt
@@ -179,9 +180,9 @@ agora/
 
 ```bash
 bun install
-bun test                           # 33 TypeScript tests
-cd contracts && forge test -vvv    # 12 Foundry tests
-cd circuits && node negative_tests.mjs  # 10 circuit adversarial tests
+bun test                           # 56 TypeScript tests
+cd contracts && forge test -vvv    # 12 Foundry tests (9 unit + 3 invariant)
+cd circuits && node negative_tests.mjs  # 10 circuit tests (7 adversarial + 3 baselines)
 anvil & npx tsx src/e2e.ts         # 20-assertion E2E
 anvil & npx tsx src/demo.ts        # 3 EdDSA proof types
 ```
@@ -195,7 +196,6 @@ anvil & npx tsx src/demo.ts        # 3 EdDSA proof types
 ## What's Next
 
 - **Railgun engine helper** — convenience wrapper for `startRailgunEngine` + `createRailgunWallet` + `loadProvider` to reduce init boilerplate
-- **Receipt endpoint reference implementation** — server-side `agora-receipts` service for merchants
 
 ## Hackathon
 

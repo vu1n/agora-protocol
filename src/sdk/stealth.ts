@@ -98,7 +98,7 @@ export function generateStealthKeys(): {
 
 // ── Receipt encryption (reuses stealth ECDH with domain separation) ──
 
-import { xchacha20poly1305 } from "@noble/ciphers/chacha";
+import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 
 /**
  * Derive an encryption key from ECDH shared secret with domain separation.
