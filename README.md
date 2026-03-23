@@ -190,6 +190,7 @@ anvil & npx tsx src/demo.ts        # 3 EdDSA proof types
 
 - **[Buyer Skill](./skill-buyer.md)** — install SDK, pay privately, pull encrypted receipts, prove loyalty
 - **[Merchant Skill](./skill-merchant.md)** — register with EdDSA key, publish deals, serve encrypted receipts, verify proofs
+- **[Threat Model](./THREAT_MODEL.md)** — adversary classes, attack vectors, privacy boundaries, trust assumptions
 
 ## What's Next
 
