@@ -128,7 +128,7 @@ Merchants advertise through their ERC-8004 agent registration:
 
 | Layer | Tool | Tests | Result |
 |-------|------|-------|--------|
-| TypeScript unit + integration | bun test | 33 tests (stealth, recipe, proof-cache, Railgun executor) | 33/33 pass |
+| TypeScript unit + integration | bun test | 48 tests (stealth, recipe, proof-cache, Railgun executor, encryption, intents) | 48/48 pass |
 | Solidity unit tests | Foundry | 9 tests with real EdDSA-signed Groth16 proofs | 9/9 pass |
 | Stateful invariant fuzz | Foundry | 128k random call sequences, 3 invariants | 3/3 hold |
 | Symbolic verification | Halmos | Access control, root binding, nullifier, deactivation | 4 proofs verified |
@@ -167,6 +167,7 @@ agora/
       recipe.ts        <- payment + loyalty proof orchestration
       executor.ts      <- stealth + Railgun execution modes
       bazaar.ts        <- deal discovery via ERC-8004 agent cards
+      intents.ts       <- stealth intents: throwaway identities for anonymous buyer discovery
       steps/
         payment.ts     <- stealth payment calldata
         loyalty.ts     <- ZK proof submission calldata
@@ -193,7 +194,6 @@ anvil & npx tsx src/demo.ts        # 3 EdDSA proof types
 ## What's Next
 
 - **Railgun engine helper** — convenience wrapper for `startRailgunEngine` + `createRailgunWallet` + `loadProvider` to reduce init boilerplate
-- **Stealth intent implementation** — the throwaway 8004 identity concept is designed but not coded
 - **Receipt endpoint reference implementation** — server-side `agora-receipts` service for merchants
 
 ## Hackathon

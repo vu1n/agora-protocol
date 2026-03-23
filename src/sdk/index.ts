@@ -12,6 +12,15 @@ export { planLoyaltyProof, type LoyaltyProofParams } from "./steps/loyalty.js";
 export { AgoraExecutor, type ExecutionResult, type RailgunConfig } from "./executor.js";
 export { DealDiscovery, type Deal, type AgentRegistration } from "./bazaar.js";
 export {
+  createThrowawayIdentity,
+  buildIntentRegistration,
+  buildIntentPayload,
+  discoverIntents,
+  matchesIntent,
+  type StealthIntent,
+  type ThrowawayIdentity,
+} from "./intents.js";
+export {
   deriveStealthAddress,
   checkStealthAddress,
   generateStealthKeys,
