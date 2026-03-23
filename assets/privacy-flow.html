@@ -465,24 +465,77 @@
     </div>
   </div>
 
+  <!-- Composable LTV -->
+  <div class="flow-section">
+    <div class="flow-label">Composable LTV — Merchant-Defined Lifetime Value</div>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-num">LTV</div>
+        <h3>Merchant Defines Formula</h3>
+        <p>"Show me this buyer's spend on coffee, brunch, and breakfast in the past 180 days."</p>
+        <span class="tag tag-amber">Custom Formula</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">LTV</div>
+        <h3>Parallel Proofs</h3>
+        <p>3 independent category-scoped proofs verified in parallel. Each uses scopeCommitment = hash(categoryId).</p>
+        <span class="tag tag-purple">3x Groth16</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">LTV</div>
+        <h3>Compose Results</h3>
+        <p>All 3 pass? Premium tier. 15% discount. Each merchant defines their own formula. No shared database needed.</p>
+        <span class="tag tag-green">Composable</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stealth Intents -->
+  <div class="flow-section">
+    <div class="flow-label">Stealth Intents — Anonymous Buyer Discovery</div>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-num">S1</div>
+        <h3>Throwaway Identity</h3>
+        <p>Buyer creates a stealth keypair and derives a one-time address. Funds it via Railgun for full unlinkability.</p>
+        <span class="tag tag-purple">Ephemeral</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">S2</div>
+        <h3>Post Intent</h3>
+        <p>Register as an ERC-8004 agent with agora-intent service. Publish: "looking for coffee, max $10."</p>
+        <span class="tag tag-teal">ERC-8004</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">S3</div>
+        <h3>Match & Transact</h3>
+        <p>Merchants scan intents, send offers to the throwaway address. Buyer picks a deal and pays via stealth mode.</p>
+        <span class="tag tag-green">Anonymous</span>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">S4</div>
+        <h3>Discard</h3>
+        <p>After transacting, abandon the throwaway identity. No link between the intent, the payment, and the buyer's real wallet.</p>
+        <span class="tag tag-green">Unlinkable</span>
+      </div>
+    </div>
+  </div>
+
   <!-- What an observer sees -->
   <div class="observer">
-    <h3>👁 What an on-chain observer sees</h3>
+    <h3>What an on-chain observer sees</h3>
     <div class="observer-grid">
       <div class="observer-item">
-        <div class="icon">💰</div>
         <div class="label">Payment</div>
         <div class="status hidden">"0xA1B2 → 0xC3D4"<br>Unknown addresses</div>
       </div>
       <div class="observer-item">
-        <div class="icon">🏪</div>
         <div class="label">Merchant</div>
         <div class="status hidden">Can't link stealth<br>address to real identity</div>
       </div>
       <div class="observer-item">
-        <div class="icon">⭐</div>
         <div class="label">Loyalty Proof</div>
-        <div class="status hidden">spend ≥ $500 = true<br>Who? Unknown.</div>
+        <div class="status hidden">spend >= $500 = true<br>Who? Unknown.</div>
       </div>
     </div>
   </div>
@@ -538,6 +591,26 @@
     </div>
   </div>
 
+  <!-- On-chain evidence -->
+  <div class="circuit" style="margin-top: 2px;">
+    <div class="circuit-stat">
+      <div class="num">3</div>
+      <div class="desc">Mainnet TXs</div>
+    </div>
+    <div class="circuit-stat">
+      <div class="num">63</div>
+      <div class="desc">TS Tests</div>
+    </div>
+    <div class="circuit-stat">
+      <div class="num">128k</div>
+      <div class="desc">Fuzz Calls</div>
+    </div>
+    <div class="circuit-stat">
+      <div class="num">6</div>
+      <div class="desc">Symbolic Proofs</div>
+    </div>
+  </div>
+
   <!-- Code snippet -->
   <div class="code-block">
     <span class="cm">// One SDK. Two privacy modes. Zero customer data.</span><br>
@@ -555,7 +628,9 @@
   <!-- Footer -->
   <div class="footer">
     <a href="https://github.com/vu1n/agora-protocol">GitHub</a>
-    <a href="https://arbiscan.io/tx/0x7c525dc1ba7e5cc511dd4d2be6ff6403792fbe095f81043af394a9d9ad920840">On-Chain Proof</a>
+    <a href="https://arbiscan.io/tx/0x7c525dc1ba7e5cc511dd4d2be6ff6403792fbe095f81043af394a9d9ad920840">ZK Proof TX</a>
+    <a href="https://arbiscan.io/tx/0x8670970e2ed36c93c65aa7223c31b1c3133591dd29f93f7df5c6c171bf73569f">Stealth TX</a>
+    <a href="https://arbiscan.io/tx/0xf192174bdb6c4fdda512e69710f9a0eb1948ce70056ba17c66b48aef44c6fbfc">Railgun TX</a>
     <a href="https://synthesis.md">The Synthesis</a>
   </div>
 
