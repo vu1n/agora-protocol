@@ -56,9 +56,9 @@ Buyer Agent                                                    Merchant Agent
 
 | Component | Location |
 |-----------|----------|
-| **LoyaltyVerifier** | Arbitrum [`0x2153...4eBd`](https://arbiscan.io/address/0x21535e0418F11551f1BcA480e2366631E3174eBd) |
-| **MerchantRegistry** | Arbitrum [`0xc908...1DF2`](https://arbiscan.io/address/0xc908B8883B3A14C8c4972f506a041318EDCe1DF2) |
-| **LoyaltyManager** | Arbitrum [`0x7E68...800e`](https://arbiscan.io/address/0x7E68F87f59D141FBc5021E2F528d683739bb800e) |
+| **LoyaltyVerifier** | Arbitrum [`0x47CD...8ff6`](https://arbiscan.io/address/0x47CD087F7748F47a7d09B1e947b94FBfD3828ff6) |
+| **MerchantRegistry** | Arbitrum [`0x77cA...9D2D`](https://arbiscan.io/address/0x77cA4dBe10bb64414D91Ad2B916d68BB04BA9D2D) |
+| **LoyaltyManager** | Arbitrum [`0xcca9...6897`](https://arbiscan.io/address/0xcca9B1D4901649Df2d6E697a249a5a6361996897) |
 | **Agent Identity** | Base ERC-8004 #35295 ([Synthesis participant `fc01b9da`](https://synthesis.devfolio.co)) |
 | **On-chain proof** | [tx 0x7c525dc1...](https://arbiscan.io/tx/0x7c525dc1ba7e5cc511dd4d2be6ff6403792fbe095f81043af394a9d9ad920840) (EdDSA-signed Groth16 verified, 326k gas) |
 | **Stealth payment** | [tx 0x86709...](https://arbiscan.io/tx/0x8670970e2ed36c93c65aa7223c31b1c3133591dd29f93f7df5c6c171bf73569f) (USDC to stealth address, merchant scan confirmed) |
